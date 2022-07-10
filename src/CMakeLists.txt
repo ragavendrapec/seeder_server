@@ -8,7 +8,8 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
 find_package(Threads REQUIRED)
 
-include_directories("${CMAKE_CURRENT_BINARY_DIR}")
+include_directories("${CMAKE_CURRENT_BINARY_DIR}"
+    "${CMAKE_SOURCE_DIR}/util")
 
 # Strip symbols
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -s")

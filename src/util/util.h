@@ -20,9 +20,9 @@
 /*
  * Type
  */
-enum status {
-    status_ok,
-    status_error
+enum status_e {
+    status_ok = 0,
+    status_error = -1
 };
 
 
