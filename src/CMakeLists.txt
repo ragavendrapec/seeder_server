@@ -20,6 +20,9 @@ set(server_srcs  server/server.cpp)
 # Client source code
 set(client_srcs  client/client.cpp)
 
+link_libraries("-fPIC -Wl,-Bdynamic")
+link_libraries(pthread)
+
 # Server binary
 add_executable(server ${server_srcs})
 
