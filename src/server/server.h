@@ -51,9 +51,11 @@ public:
     ~SeederServer();
 
     status_e BlockSignals();
+    status_e InitDB();
     void ReceiveSignal();
     status_e SetupSocket();
     status_e SocketFunction();
+    status_e CheckAndAddToTable(struct sockaddr_in client_address, size_t client_addr_len);
     status_e ProcessReply();
     status_e StartThreads();
 
@@ -73,6 +75,8 @@ private:
     std::queue<receive_socket_data> receive_socket_queue;
     std::condition_variable queue_signal_cv;
     bool signal_received;
+
+    sqlite3 *database;
 };
 
 #endif // SERVER_H_
