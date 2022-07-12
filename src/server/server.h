@@ -11,6 +11,8 @@
 #include <memory>
 #include <atomic>
 #include <queue>
+#include <list>
+#include <chrono>
 
 #include <signal.h>
 #include <sys/socket.h>
@@ -42,7 +44,24 @@ struct receive_socket_data
     size_t buffer_size;
     struct sockaddr_in client_address;
     size_t client_addr_len;
-} ;
+};
+
+struct client_info
+{
+    client_info() {}
+
+    client_info(struct sockaddr_in arg_client_address, size_t arg_client_addr_len)
+                    : client_addr_len(arg_client_addr_len), joining_time(std::chrono::steady_clock::now()),
+                      last_ping_received_time(std::chrono::steady_clock::now())
+    {
+        memcpy(&client_address, &arg_client_address, arg_client_addr_len);
+    }
+
+    struct sockaddr_in client_address;
+    size_t client_addr_len;
+    std::chrono::steady_clock::time_point joining_time;
+    std::chrono::steady_clock::time_point last_ping_received_time;
+};
 
 class SeederServer
 {
@@ -51,11 +70,11 @@ public:
     ~SeederServer();
 
     status_e BlockSignals();
-    status_e InitDB();
     void ReceiveSignal();
     status_e SetupSocket();
     status_e SocketFunction();
     status_e CheckAndAddToTable(struct sockaddr_in client_address, size_t client_addr_len);
+    status_e PrepareNodesList(struct sockaddr_in client_address, size_t client_addr_len);
     status_e ProcessReply();
     status_e StartThreads();
 
@@ -68,7 +87,7 @@ private:
     std::atomic<bool> shutdown_requested;
 
     int seeder_server_socket;
-    struct sockaddr_in address;
+    struct sockaddr_in seeder_server_address;
     int seeder_server_port;
 
     std::mutex queue_signal_mutex;
@@ -76,7 +95,8 @@ private:
     std::condition_variable queue_signal_cv;
     bool signal_received;
 
-    sqlite3 *database;
+    std::mutex client_info_list_mutex;
+    std::list<client_info> client_info_list;
 };
 
 #endif // SERVER_H_

@@ -26,10 +26,6 @@ static const long seeder_server_select_wait_seconds = 0;
 static const long seeder_server_select_wait_micro_seconds = 100000; // 100 milliseconds
 static const int seeder_server_receive_buffer_size = 4096;
 
-static const std::string database_file_name("client_info.db");
-static const std::string create_table = "CREATE TABLE CLIENT_INFO("  \
-        "IPADDR INT PRIMARY KEY     NOT NULL," \
-        "PORT           INT     NOT NULL);";
 /*
  * Local Types
  */
@@ -47,19 +43,10 @@ SeederServer::SeederServer()
     reply_thread = nullptr;
     seeder_server_port = seeder_server_default_port;
 
-    database = nullptr;
 }
 
 SeederServer::~SeederServer()
 {
-    if (database)
-    {
-        sqlite3_close(database);
-        // Remove the below line to make the client info persistent across server
-        // reboots/shutdown.
-        unlink(database_file_name.c_str());
-    }
-
     if (reply_thread)
     {
         reply_thread->join();
@@ -94,38 +81,6 @@ status_e SeederServer::BlockSignals()
     }
 
     DEBUG_PRINT_LN("completed");
-    return status_ok;
-}
-
-status_e SeederServer::InitDB()
-{
-    int ret;
-    char *error_msg;
-
-    ret = sqlite3_open(database_file_name.c_str(), &database);
-
-    if(ret != SQLITE_OK)
-    {
-        ERROR_PRINT_LN("Can't open database: ", sqlite3_errmsg(database));
-        return status_error;
-    }
-    else
-    {
-        DEBUG_PRINT_LN("Opened database successfully");
-    }
-
-    ret = sqlite3_exec(database, create_table.c_str(), nullptr, 0, &error_msg);
-
-    if (ret != SQLITE_OK)
-    {
-        ERROR_PRINT_LN("SQL error: ", error_msg);
-        sqlite3_free(error_msg);
-    }
-    else
-    {
-        DEBUG_PRINT_LN("Table created successfully");
-    }
-
     return status_ok;
 }
 
@@ -180,11 +135,11 @@ status_e SeederServer::SetupSocket()
         return status_error;
     }
 
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = htons(seeder_server_port);
+    seeder_server_address.sin_family = AF_INET;
+    seeder_server_address.sin_addr.s_addr = INADDR_ANY;
+    seeder_server_address.sin_port = htons(seeder_server_port);
 
-    if (bind(seeder_server_socket, reinterpret_cast<sockaddr *>(&address), sizeof(address)) != 0)
+    if (bind(seeder_server_socket, reinterpret_cast<sockaddr *>(&seeder_server_address), sizeof(seeder_server_address)) != 0)
     {
         ERROR_PRINT_LN("Bind failed for server socket");
         return status_error;
@@ -235,10 +190,10 @@ status_e SeederServer::SocketFunction()
                 buffer[num_bytes_received] = '\0';
 //                INFO_PRINT_LN("", buffer, client_addr.sin_port);
 
-                // Emplace to queue (instead of push) and notify
+                // Emplace to queue and notify
                 {
                     std::lock_guard<std::mutex> lock(queue_signal_mutex);
-                    receive_socket_queue.push(receive_socket_data(buffer, num_bytes_received, client_addr, client_addr_len));
+                    receive_socket_queue.emplace(buffer, num_bytes_received, client_addr, client_addr_len);
                     queue_signal_cv.notify_all();
                 }
             }
@@ -264,30 +219,59 @@ status_e SeederServer::SocketFunction()
 }
 
 status_e SeederServer::CheckAndAddToTable(struct sockaddr_in client_address,
-        size_t client_addr_len)
+        size_t client_address_len)
 {
     int ret;
     char *error_msg;
-    // For now just add to table, later need to check and add
-    std::string sql("INSERT INTO CLIENT_INFO VALUES(");
-    std::string sql1(std::to_string(client_address.sin_addr.s_addr));
-    std::string command(", ");
-    std::string sql2(std::to_string(client_address.sin_port));
-    std::string sql3(");");
+    bool match_found;
+    DEBUG_PRINT_LN("");
 
-    std::string complete_command = sql + sql1 + command + sql2 + sql3;
-
-    ret = sqlite3_exec(database, complete_command.c_str(), NULL, 0, &error_msg);
-    if (ret != SQLITE_OK)
+    match_found = false;
+    std::lock_guard<std::mutex> lock(client_info_list_mutex);
+    for (auto client_info : client_info_list)
     {
-        ERROR_PRINT_LN("Error Insert");
-        sqlite3_free(error_msg);
-    }
-    else
-    {
-        INFO_PRINT_LN("Records created Successfully!");
+        if (client_info.client_address.sin_addr.s_addr == client_address.sin_addr.s_addr
+                && client_info.client_address.sin_port == client_address.sin_port)
+        {
+            match_found = true;
+            break;
+        }
     }
 
+    if (!match_found)
+    {
+        client_info_list.emplace_back(client_address, client_address_len);
+    }
+
+    DEBUG_PRINT_LN("completed");
+    return status_ok;
+}
+
+status_e SeederServer::PrepareNodesList(struct sockaddr_in client_address,
+        size_t client_address_len)
+{
+    std::string buffer;
+
+    DEBUG_PRINT_LN("");
+
+    {
+        std::lock_guard<std::mutex> lock(client_info_list_mutex);
+        for(auto client_info : client_info_list)
+        {
+            buffer.append(std::to_string(client_info.client_address.sin_addr.s_addr));
+            buffer.append("*");
+            buffer.append(std::to_string(client_info.client_address.sin_port));
+            buffer.append("*");
+//            std::chrono::duration<double> time_span = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - client_info.joining_time);
+//            buffer.append(std::to_string(time_span.count()));
+//            buffer.append("*");
+        }
+    }
+
+    sendto(seeder_server_socket, (char *)buffer.c_str(), buffer.size(), MSG_WAITALL,
+            (struct sockaddr *) &client_address, client_address_len);
+
+    DEBUG_PRINT_LN("completed");
     return status_ok;
 }
 
@@ -319,12 +303,13 @@ status_e SeederServer::ProcessReply()
         INFO_PRINT_LN("", rsd.buffer, " ", rsd.client_address.sin_port);
         if (rsd.buffer == hello_msg)
         {
-            // Client introduction, add to database if not present previously
+            // Client introduction, add to list if not present previously
             CheckAndAddToTable(rsd.client_address, rsd.client_addr_len);
         }
         else if (rsd.buffer == get_nodes_list_msg)
         {
             // Client asking for nodes list, prepare and send.
+            PrepareNodesList(rsd.client_address, rsd.client_addr_len);
         }
     }
 
@@ -368,12 +353,6 @@ void server()
     if(seeder_server.BlockSignals() != status_ok)
     {
         ERROR_PRINT_LN("Block signals failed");
-        return;
-    }
-
-    if(seeder_server.InitDB() != status_ok)
-    {
-        ERROR_PRINT_LN("Init Database failed");
         return;
     }
 

@@ -119,6 +119,7 @@ status_e Client::SocketFunction()
                                                MSG_WAITALL, nullptr, nullptr);
 
                 buffer[num_bytes_received] = '\0';
+                INFO_PRINT_LN("", buffer);
             }
         }
     }

@@ -22,7 +22,7 @@ set(client_srcs  client/client.cpp)
 
 link_libraries("-fPIC -Wl,-Bdynamic")
 link_libraries(pthread)
-link_libraries(sqlite3)
+#link_libraries(sqlite3)
 
 # Server binary
 add_executable(server ${server_srcs})
