@@ -44,6 +44,7 @@ std::ostream& operator,(std::ostream& out, std::ostream&(*f)(std::ostream&))
  */
 const std::string hello_msg("hello");
 const std::string get_nodes_list_msg("get nodes list");
+const std::string ping_msg("ping");
 
 /*
  * Type

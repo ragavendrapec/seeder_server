@@ -41,12 +41,18 @@ SeederServer::SeederServer()
     signal_thread = nullptr;
     socket_thread = nullptr;
     reply_thread = nullptr;
+    client_status_thread = nullptr;
     seeder_server_port = seeder_server_default_port;
 
 }
 
 SeederServer::~SeederServer()
 {
+    if (client_status_thread)
+    {
+        client_status_thread->join();
+    }
+
     if (reply_thread)
     {
         reply_thread->join();
@@ -84,7 +90,7 @@ status_e SeederServer::BlockSignals()
     return status_ok;
 }
 
-void SeederServer::ReceiveSignal()
+void SeederServer::ReceiveSignalThreadFunction()
 {
     int signal;
     struct timespec t;
@@ -145,13 +151,13 @@ status_e SeederServer::SetupSocket()
         return status_error;
     }
 
-    socket_thread.reset(new std::thread(&SeederServer::SocketFunction, this));
+    socket_thread.reset(new std::thread(&SeederServer::SocketThreadFunction, this));
 
     DEBUG_PRINT_LN("completed");
     return status_ok;
 }
 
-status_e SeederServer::SocketFunction()
+status_e SeederServer::SocketThreadFunction()
 {
     fd_set readfds;
     struct timeval tv;
@@ -262,9 +268,6 @@ status_e SeederServer::PrepareNodesList(struct sockaddr_in client_address,
             buffer.append("*");
             buffer.append(std::to_string(client_info.client_address.sin_port));
             buffer.append("*");
-//            std::chrono::duration<double> time_span = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - client_info.joining_time);
-//            buffer.append(std::to_string(time_span.count()));
-//            buffer.append("*");
         }
     }
 
@@ -275,7 +278,28 @@ status_e SeederServer::PrepareNodesList(struct sockaddr_in client_address,
     return status_ok;
 }
 
-status_e SeederServer::ProcessReply()
+status_e SeederServer::PingReceived(struct sockaddr_in client_address,
+        size_t client_address_len)
+{
+    DEBUG_PRINT_LN("");
+
+    {
+        std::lock_guard<std::mutex> lock(client_info_list_mutex);
+        for(auto &client_info : client_info_list)
+        {
+            if (client_info.client_address.sin_addr.s_addr == client_address.sin_addr.s_addr
+                            && client_info.client_address.sin_port == client_address.sin_port)
+            {
+                client_info.last_ping_received_time = std::chrono::steady_clock::now();
+            }
+        }
+    }
+
+    DEBUG_PRINT_LN("completed");
+    return status_ok;
+}
+
+status_e SeederServer::ProcessReplyThreadFunction()
 {
     receive_socket_data rsd;
 
@@ -300,7 +324,7 @@ status_e SeederServer::ProcessReply()
                 break;
             }
         }
-        INFO_PRINT_LN("", rsd.buffer, " ", rsd.client_address.sin_port);
+        DEBUG_PRINT_LN("", rsd.buffer, " ", rsd.client_address.sin_port);
         if (rsd.buffer == hello_msg)
         {
             // Client introduction, add to list if not present previously
@@ -311,6 +335,49 @@ status_e SeederServer::ProcessReply()
             // Client asking for nodes list, prepare and send.
             PrepareNodesList(rsd.client_address, rsd.client_addr_len);
         }
+        else if(rsd.buffer == ping_msg)
+        {
+            PingReceived(rsd.client_address, rsd.client_addr_len);
+        }
+    }
+
+    DEBUG_PRINT_LN("completed");
+    return status_ok;
+}
+
+status_e SeederServer::ClientStatusThreadFunction()
+{
+    DEBUG_PRINT_LN("");
+
+    while(true)
+    {
+        {
+            std::unique_lock<std::mutex> lock(client_status_check_mutex);
+            client_status_check_cv.wait_for(lock, std::chrono::seconds(2), [this]()
+                    {
+                        return shutdown_requested.load();
+                    });
+        }
+
+        std::lock_guard<std::mutex> lock1(client_info_list_mutex);
+        for(auto iterator = client_info_list.begin(); iterator != client_info_list.end(); ++iterator)
+        {
+            std::chrono::duration<double> time_span = std::chrono::duration_cast<
+                    std::chrono::duration<double>>(std::chrono::steady_clock::now() - iterator->last_ping_received_time);
+            DEBUG_PRINT_LN("", iterator->client_address.sin_port, " ", time_span.count());
+            if (time_span.count() > 11)
+            {
+                iterator = client_info_list.erase(iterator);
+            }
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(queue_signal_mutex);
+            if (signal_received)
+            {
+                break;
+            }
+        }
     }
 
     DEBUG_PRINT_LN("completed");
@@ -319,7 +386,7 @@ status_e SeederServer::ProcessReply()
 
 status_e SeederServer::StartThreads()
 {
-    signal_thread.reset(new std::thread(&SeederServer::ReceiveSignal, this));
+    signal_thread.reset(new std::thread(&SeederServer::ReceiveSignalThreadFunction, this));
 
     if (SetupSocket() != status_ok)
     {
@@ -327,7 +394,9 @@ status_e SeederServer::StartThreads()
         return status_error;
     }
 
-    reply_thread.reset(new std::thread(&SeederServer::ProcessReply, this));
+    reply_thread.reset(new std::thread(&SeederServer::ProcessReplyThreadFunction, this));
+
+    client_status_thread.reset(new std::thread(&SeederServer::ClientStatusThreadFunction, this));
 
     while(true)
     {

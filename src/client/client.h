@@ -37,16 +37,22 @@ public:
 
     status_e SetupSocket();
     status_e ProcessInput();
+    status_e PingServer();
     status_e StartThreads();
     status_e SocketFunction();
 
 private:
     std::unique_ptr<std::thread> socket_thread;
     std::unique_ptr<std::thread> process_input_thread;
+    std::unique_ptr<std::thread> ping_thread;
 
     std::atomic<bool> shutdown_requested;
     struct sockaddr_in server_address;
     socklen_t server_address_len;
+
+    std::mutex ping_mutex;
+    std::condition_variable ping_cv;
+    std::promise<void> hello_sent;
 
     int client_socket;
 };

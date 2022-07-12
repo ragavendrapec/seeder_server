@@ -8,6 +8,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <cstring>
+#include <future>
 
 #include "client.h"
 
@@ -41,10 +42,16 @@ Client::Client()
 
     socket_thread = nullptr;
     process_input_thread = nullptr;
+    ping_thread = nullptr;
 }
 
 Client::~Client()
 {
+    if (ping_thread)
+    {
+        ping_thread->join();
+    }
+
     if (process_input_thread)
     {
         process_input_thread->join();
@@ -146,6 +153,7 @@ status_e Client::ProcessInput()
             {
                 ERROR_PRINT_LN("Sendto returned error: ", strerror(errno), "(", errno, ")");
             }
+            hello_sent.set_value();
         }
         else if (input == "2")
         {
@@ -178,6 +186,46 @@ status_e Client::ProcessInput()
     return status_ok;
 }
 
+status_e Client::PingServer()
+{
+    int first_time;
+
+    first_time = 0;
+        auto fut= hello_sent.get_future();
+
+    while(true)
+    {
+        if (!first_time)
+        {
+            // Wait for the hello msg to be sent to server before starting to ping
+            // server periodically.
+            fut.wait();
+            first_time = 1;
+        }
+        std::unique_lock<std::mutex> lock(ping_mutex);
+        ping_cv.wait_for(lock, std::chrono::seconds(10), [this]()
+                {
+                    return shutdown_requested.load();
+                });
+
+        if(shutdown_requested.load())
+        {
+            break;
+        }
+        else
+        {
+            DEBUG_PRINT_LN("Sending ping now");
+            if (sendto(client_socket, (void *)ping_msg.data(), ping_msg.size(),
+                                MSG_WAITALL, (struct sockaddr *) &server_address, server_address_len) != 0)
+            {
+                ERROR_PRINT_LN("Sendto returned error: ", strerror(errno), "(", errno, ")");
+            }
+        }
+    }
+
+    return status_ok;
+}
+
 status_e Client::StartThreads()
 {
     if (SetupSocket() != status_ok)
@@ -187,6 +235,8 @@ status_e Client::StartThreads()
     }
 
     process_input_thread.reset(new std::thread(&Client::ProcessInput, this));
+
+    ping_thread.reset(new std::thread(&Client::PingServer, this));
 
     while(!shutdown_requested.load())
     {

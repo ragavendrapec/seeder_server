@@ -70,18 +70,21 @@ public:
     ~SeederServer();
 
     status_e BlockSignals();
-    void ReceiveSignal();
+    void ReceiveSignalThreadFunction();
     status_e SetupSocket();
-    status_e SocketFunction();
+    status_e SocketThreadFunction();
     status_e CheckAndAddToTable(struct sockaddr_in client_address, size_t client_addr_len);
     status_e PrepareNodesList(struct sockaddr_in client_address, size_t client_addr_len);
-    status_e ProcessReply();
+    status_e PingReceived(struct sockaddr_in client_address, size_t client_addr_len);
+    status_e ProcessReplyThreadFunction();
+    status_e ClientStatusThreadFunction();
     status_e StartThreads();
 
 private:
     std::unique_ptr<std::thread> signal_thread;
     std::unique_ptr<std::thread> socket_thread;
     std::unique_ptr<std::thread> reply_thread;
+    std::unique_ptr<std::thread> client_status_thread;
 
     sigset_t sigset;
     std::atomic<bool> shutdown_requested;
@@ -97,6 +100,9 @@ private:
 
     std::mutex client_info_list_mutex;
     std::list<client_info> client_info_list;
+
+    std::mutex client_status_check_mutex;
+    std::condition_variable client_status_check_cv;
 };
 
 #endif // SERVER_H_
