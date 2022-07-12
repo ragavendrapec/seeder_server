@@ -27,7 +27,7 @@ const std::string command_prompt("Please specify the option below:\n" \
         "1. Send hello to server\n" \
         "2. Get peer list\n" \
         "3. Connect to another peer\n" \
-        "4. Get peers statistics\n" \
+        "4. Nodes which are alive during the last x hours etc\n" \
         "5. Quit/Shutdown client");
 
 /*
@@ -169,7 +169,16 @@ status_e Client::ProcessInput()
         }
         else if (input == "4")
         {
+            INFO_PRINT_LN("Specify time period like 1h, 2h, 1d:");
+            std::string duration_alive;
+            std::cin >> input;
+            duration_alive = duration_alive_msg + "*" + input;
 
+            if (sendto(client_socket, (void *)duration_alive.data(), duration_alive.size(),
+                                            MSG_WAITALL, (struct sockaddr *) &server_address, server_address_len) != 0)
+            {
+                ERROR_PRINT_LN("Sendto returned error: ", strerror(errno), "(", errno, ")");
+            }
         }
         else if (input == "5")
         {

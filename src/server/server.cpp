@@ -302,6 +302,7 @@ status_e SeederServer::PingReceived(struct sockaddr_in client_address,
 status_e SeederServer::ProcessReplyThreadFunction()
 {
     receive_socket_data rsd;
+    size_t find;
 
     DEBUG_PRINT_LN("");
 
@@ -338,6 +339,10 @@ status_e SeederServer::ProcessReplyThreadFunction()
         else if(rsd.buffer == ping_msg)
         {
             PingReceived(rsd.client_address, rsd.client_addr_len);
+        }
+        else if ((find = rsd.buffer.find(duration_alive_msg)) != std::string::npos)
+        {
+
         }
     }
 
