@@ -13,6 +13,7 @@
 #include <queue>
 #include <list>
 #include <chrono>
+#include <future>
 
 #include <signal.h>
 #include <sys/socket.h>
@@ -95,16 +96,20 @@ private:
     struct sockaddr_in seeder_server_address;
     int seeder_server_port;
 
-    std::mutex queue_signal_mutex;
+    std::mutex receive_socket_queue_mutex;
     std::queue<receive_socket_data> receive_socket_queue;
-    std::condition_variable queue_signal_cv;
-    bool signal_received;
+    std::condition_variable receive_socket_queue_cv;
+
+    std::atomic<bool> signal_received;
 
     std::mutex client_info_list_mutex;
     std::list<client_info> client_info_list;
 
     std::mutex client_status_check_mutex;
     std::condition_variable client_status_check_cv;
+    bool client_status_variable;
+
+    std::promise<void> promise_main_thread;
 };
 
 #endif // SERVER_H_

@@ -21,7 +21,6 @@
 /*
  * Local Constants
  */
-static const int seeder_server_default_port = 54321;
 static const long seeder_server_select_wait_seconds = 0;
 static const long seeder_server_select_wait_micro_seconds = 100000; // 100 milliseconds
 static const int seeder_server_receive_buffer_size = 4096;
@@ -35,15 +34,15 @@ static const int seeder_server_receive_buffer_size = 4096;
  */
 SeederServer::SeederServer()
 {
-    signal_received = false;
+    signal_received.store(false);
     shutdown_requested.store(false);
+    client_status_variable = false;
 
     signal_thread = nullptr;
     socket_thread = nullptr;
     reply_thread = nullptr;
     client_status_thread = nullptr;
     seeder_server_port = seeder_server_default_port;
-
 }
 
 SeederServer::~SeederServer()
@@ -115,9 +114,25 @@ void SeederServer::ReceiveSignalThreadFunction()
         }
     }
 
-    std::lock_guard<std::mutex> lock(queue_signal_mutex);
-    signal_received = true;
-    queue_signal_cv.notify_all();
+    signal_received.store(true);
+
+    {
+        struct sockaddr_in dummy_addr;
+        size_t dummy_addr_len = sizeof(dummy_addr);
+        std::string dummy_buffer(shutting_down_msg);
+        std::lock_guard<std::mutex> lock(receive_socket_queue_mutex);
+        // Push an element with shutdown msg to inform ProcessReplyFunction to exit from loop
+        receive_socket_queue.emplace(dummy_buffer, dummy_buffer.size(), dummy_addr, dummy_addr_len);
+        receive_socket_queue_cv.notify_all();
+    }
+
+    {
+        std::unique_lock<std::mutex> lock(client_status_check_mutex);
+        client_status_variable = true;
+        client_status_check_cv.notify_all();
+    }
+
+    promise_main_thread.set_value();
 
     DEBUG_PRINT_LN("completed");
     return;
@@ -172,7 +187,7 @@ status_e SeederServer::SocketThreadFunction()
 
     nfds = 0;
     client_addr_len = sizeof(client_addr);
-    while(true)
+    while(!signal_received.load())
     {
         memset(&client_addr, 0, sizeof(client_addr));
         FD_ZERO(&readfds);
@@ -198,9 +213,9 @@ status_e SeederServer::SocketThreadFunction()
 
                 // Emplace to queue and notify
                 {
-                    std::lock_guard<std::mutex> lock(queue_signal_mutex);
+                    std::lock_guard<std::mutex> lock(receive_socket_queue_mutex);
                     receive_socket_queue.emplace(buffer, num_bytes_received, client_addr, client_addr_len);
-                    queue_signal_cv.notify_all();
+                    receive_socket_queue_cv.notify_all();
                 }
             }
         }
@@ -211,12 +226,6 @@ status_e SeederServer::SocketThreadFunction()
         else
         {
             ERROR_PRINT_LN("select returned error: ", strerror(errno), "(", errno, ")");
-        }
-
-        std::lock_guard<std::mutex> lock(queue_signal_mutex);
-        if (signal_received)
-        {
-            break;
         }
     }
 
@@ -341,20 +350,15 @@ status_e SeederServer::ProcessReplyThreadFunction()
     while(true)
     {
         {
-            std::unique_lock<std::mutex> lock(queue_signal_mutex);
-            queue_signal_cv.wait(lock, [this]()
+            std::unique_lock<std::mutex> lock(receive_socket_queue_mutex);
+            receive_socket_queue_cv.wait(lock, [this]()
                 {
-                    return signal_received || !receive_socket_queue.empty();
+                    return !receive_socket_queue.empty();
                 });
             if (!receive_socket_queue.empty())
             {
                 rsd = receive_socket_queue.front();
                 receive_socket_queue.pop();
-            }
-
-            if (signal_received)
-            {
-                break;
             }
         }
         DEBUG_PRINT_LN("", rsd.buffer, " ", rsd.client_address.sin_port);
@@ -378,6 +382,10 @@ status_e SeederServer::ProcessReplyThreadFunction()
             int time_alive = std::stoi(rsd.buffer.substr(duration_alive_msg.size() + 1), nullptr, 10);
             PrepareDurationAliveList(rsd.client_address, rsd.client_addr_len, time_alive);
         }
+        else if (rsd.buffer == shutting_down_msg)
+        {
+            break;
+        }
     }
 
     DEBUG_PRINT_LN("completed");
@@ -388,14 +396,19 @@ status_e SeederServer::ClientStatusThreadFunction()
 {
     DEBUG_PRINT_LN("");
 
-    while(true)
+    while(!signal_received.load())
     {
         {
             std::unique_lock<std::mutex> lock(client_status_check_mutex);
             client_status_check_cv.wait_for(lock, std::chrono::seconds(2), [this]()
                     {
-                        return shutdown_requested.load();
+                        return client_status_variable;
                     });
+
+            if (client_status_variable)
+            {
+                break;
+            }
         }
 
         std::lock_guard<std::mutex> lock1(client_info_list_mutex);
@@ -407,14 +420,6 @@ status_e SeederServer::ClientStatusThreadFunction()
             if (time_span.count() > 11)
             {
                 iterator = client_info_list.erase(iterator);
-            }
-        }
-
-        {
-            std::lock_guard<std::mutex> lock(queue_signal_mutex);
-            if (signal_received)
-            {
-                break;
             }
         }
     }
@@ -437,19 +442,10 @@ status_e SeederServer::StartThreads()
 
     client_status_thread.reset(new std::thread(&SeederServer::ClientStatusThreadFunction, this));
 
-    while(true)
-    {
-        std::unique_lock<std::mutex> lock(queue_signal_mutex);
-        queue_signal_cv.wait(lock, [&]()
-                {
-                    return signal_received;
-                });
+    INFO_PRINT_LN("Server running");
 
-        if (signal_received)
-        {
-            break;
-        }
-    }
+    auto future = promise_main_thread.get_future();
+    future.wait();
 
     return status_ok;
 }

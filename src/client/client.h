@@ -52,8 +52,12 @@ private:
 
     std::mutex ping_mutex;
     std::condition_variable ping_cv;
-    std::promise<void> hello_sent_promise;
-    bool promise_sent;
+    bool ping_mutex_variable;
+
+    std::promise<void> promise_hello_sent;
+    std::atomic<bool> hello_sent;
+
+    std::promise<void> promise_main_thread;
 
     int client_socket;
 };

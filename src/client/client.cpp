@@ -19,7 +19,6 @@
 /*
  * Local Constants
  */
-static const int seeder_server_default_port = 54321;
 static const long select_wait_seconds = 0;
 static const long select_wait_micro_seconds = 100000; // 100 milliseconds
 static const int client_receive_buffer_size = 4096;
@@ -33,9 +32,6 @@ const std::string command_prompt("\nPlease specify the option below:\n" \
 /*
  * Globals
  */
-std::mutex cv_mutex;
-std::condition_variable cv;
-
 Client::Client()
 {
     shutdown_requested.store(false);
@@ -43,15 +39,16 @@ Client::Client()
     socket_thread = nullptr;
     process_input_thread = nullptr;
     ping_thread = nullptr;
+    ping_mutex_variable = false;
 
-    promise_sent = false;
+    hello_sent.store(false);
 }
 
 Client::~Client()
 {
-    if (!promise_sent)
+    if (!hello_sent.load())
     {
-        hello_sent_promise.set_value();
+        promise_hello_sent.set_value();
     }
 
     if (ping_thread)
@@ -160,10 +157,10 @@ status_e Client::ProcessInput()
             {
                 ERROR_PRINT_LN("Sendto returned error: ", strerror(errno), "(", errno, ")");
             }
-            hello_sent_promise.set_value();
-            promise_sent = true;
+            promise_hello_sent.set_value();
+            hello_sent.store(true);
         }
-        else if (input == "2" && promise_sent == true)
+        else if (input == "2" && hello_sent.load())
         {
             if (sendto(client_socket, (void *)get_nodes_list_msg.data(), get_nodes_list_msg.size(),
                                 MSG_WAITALL, (struct sockaddr *) &server_address, server_address_len) < 0)
@@ -171,11 +168,11 @@ status_e Client::ProcessInput()
                 ERROR_PRINT_LN("Sendto returned error: ", strerror(errno), "(", errno, ")");
             }
         }
-        else if (input == "3" && promise_sent == true)
+        else if (input == "3" && hello_sent.load())
         {
 
         }
-        else if (input == "4" && promise_sent == true)
+        else if (input == "4" && hello_sent.load())
         {
             INFO_PRINT_LN("Specify time period like 20s, 10m, 2h, 1d:");
             std::string duration_alive;
@@ -204,7 +201,6 @@ status_e Client::ProcessInput()
                 {
                     time_in_seconds = std::stoi(input.substr(0, find), nullptr, 10) * 60 * 60 * 24;
                 }
-                INFO_PRINT_LN("Time in seconds ", time_in_seconds);
 
                 duration_alive = duration_alive_msg + "*" + std::to_string(time_in_seconds);
 
@@ -222,7 +218,11 @@ status_e Client::ProcessInput()
         else if (input == "5")
         {
             shutdown_requested.store(true);
-            cv.notify_all();
+
+            promise_main_thread.set_value();
+            std::unique_lock<std::mutex> lock(ping_mutex);
+            ping_mutex_variable = true;
+            ping_cv.notify_all();
         }
         else
         {
@@ -239,7 +239,7 @@ status_e Client::PingServer()
     int first_time;
 
     first_time = 0;
-    auto fut= hello_sent_promise.get_future();
+    auto fut = promise_hello_sent.get_future();
 
     while(true)
     {
@@ -250,24 +250,24 @@ status_e Client::PingServer()
             fut.wait();
             first_time = 1;
         }
-        std::unique_lock<std::mutex> lock(ping_mutex);
-        ping_cv.wait_for(lock, std::chrono::seconds(10), [this]()
-                {
-                    return shutdown_requested.load();
-                });
+        {
+            std::unique_lock<std::mutex> lock(ping_mutex);
+            ping_cv.wait_for(lock, std::chrono::seconds(10), [this]()
+                    {
+                        return ping_mutex_variable;
+                    });
 
-        if(shutdown_requested.load())
-        {
-            break;
-        }
-        else
-        {
-            DEBUG_PRINT_LN("Sending ping now");
-            if (sendto(client_socket, (void *)ping_msg.data(), ping_msg.size(),
-                                MSG_WAITALL, (struct sockaddr *) &server_address, server_address_len) < 0)
+            if(ping_mutex_variable)
             {
-                ERROR_PRINT_LN("Sendto returned error: ", strerror(errno), "(", errno, ")");
+                break;
             }
+        }
+
+        DEBUG_PRINT_LN("Sending ping now");
+        if (sendto(client_socket, (void *)ping_msg.data(), ping_msg.size(),
+                            MSG_WAITALL, (struct sockaddr *) &server_address, server_address_len) < 0)
+        {
+            ERROR_PRINT_LN("Sendto returned error: ", strerror(errno), "(", errno, ")");
         }
     }
 
@@ -286,11 +286,8 @@ status_e Client::StartThreads()
 
     ping_thread.reset(new std::thread(&Client::PingServer, this));
 
-    while(!shutdown_requested.load())
-    {
-        std::unique_lock<std::mutex> lock(cv_mutex);
-        cv.wait(lock);
-    }
+    auto future = promise_main_thread.get_future();
+    future.wait();
 
     return status_ok;
 }
