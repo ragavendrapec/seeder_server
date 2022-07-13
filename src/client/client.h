@@ -62,7 +62,4 @@ private:
     int client_socket;
 };
 
-
-
-
 #endif // CLIENT_H_

@@ -120,10 +120,10 @@ void SeederServer::ReceiveSignalThreadFunction()
         struct sockaddr_in dummy_addr;
         size_t dummy_addr_len = sizeof(dummy_addr);
         std::string dummy_buffer(shutting_down_msg);
-        std::lock_guard<std::mutex> lock(receive_socket_queue_mutex);
+        std::lock_guard<std::mutex> lock(receive_queue_mutex);
         // Push an element with shutdown msg to inform ProcessReplyFunction to exit from loop
-        receive_socket_queue.emplace(dummy_buffer, dummy_buffer.size(), dummy_addr, dummy_addr_len);
-        receive_socket_queue_cv.notify_all();
+        receive_queue.emplace(dummy_buffer, dummy_buffer.size(), dummy_addr, dummy_addr_len);
+        receive_queue_cv.notify_all();
     }
 
     {
@@ -213,9 +213,9 @@ status_e SeederServer::SocketThreadFunction()
 
                 // Emplace to queue and notify
                 {
-                    std::lock_guard<std::mutex> lock(receive_socket_queue_mutex);
-                    receive_socket_queue.emplace(buffer, num_bytes_received, client_addr, client_addr_len);
-                    receive_socket_queue_cv.notify_all();
+                    std::lock_guard<std::mutex> lock(receive_queue_mutex);
+                    receive_queue.emplace(buffer, num_bytes_received, client_addr, client_addr_len);
+                    receive_queue_cv.notify_all();
                 }
             }
         }
@@ -342,7 +342,7 @@ status_e SeederServer::PrepareDurationAliveList(struct sockaddr_in client_addres
 
 status_e SeederServer::ProcessReplyThreadFunction()
 {
-    receive_socket_data rsd;
+    receive_queue_data rqd;
     size_t find;
 
     DEBUG_PRINT_LN("");
@@ -350,39 +350,39 @@ status_e SeederServer::ProcessReplyThreadFunction()
     while(true)
     {
         {
-            std::unique_lock<std::mutex> lock(receive_socket_queue_mutex);
-            receive_socket_queue_cv.wait(lock, [this]()
+            std::unique_lock<std::mutex> lock(receive_queue_mutex);
+            receive_queue_cv.wait(lock, [this]()
                 {
-                    return !receive_socket_queue.empty();
+                    return !receive_queue.empty();
                 });
-            if (!receive_socket_queue.empty())
+            if (!receive_queue.empty())
             {
-                rsd = receive_socket_queue.front();
-                receive_socket_queue.pop();
+                rqd = receive_queue.front();
+                receive_queue.pop();
             }
         }
-        DEBUG_PRINT_LN("", rsd.buffer, " ", rsd.client_address.sin_port);
-        if (rsd.buffer == hello_msg)
+        DEBUG_PRINT_LN("", rqd.buffer, " ", rqd.client_address.sin_port);
+        if (rqd.buffer == hello_msg)
         {
             // Client introduction, add to list if not present previously
-            CheckAndAddToTable(rsd.client_address, rsd.client_addr_len);
+            CheckAndAddToTable(rqd.client_address, rqd.client_addr_len);
         }
-        else if (rsd.buffer == get_nodes_list_msg)
+        else if (rqd.buffer == get_nodes_list_msg)
         {
             // Client asking for nodes list, prepare and send.
-            PrepareNodesList(rsd.client_address, rsd.client_addr_len);
+            PrepareNodesList(rqd.client_address, rqd.client_addr_len);
         }
-        else if(rsd.buffer == ping_msg)
+        else if(rqd.buffer == ping_msg)
         {
             // Update last ping received time in client info list
-            PingReceived(rsd.client_address, rsd.client_addr_len);
+            PingReceived(rqd.client_address, rqd.client_addr_len);
         }
-        else if ((find = rsd.buffer.find(duration_alive_msg)) != std::string::npos)
+        else if ((find = rqd.buffer.find(duration_alive_msg)) != std::string::npos)
         {
-            int time_alive = std::stoi(rsd.buffer.substr(duration_alive_msg.size() + 1), nullptr, 10);
-            PrepareDurationAliveList(rsd.client_address, rsd.client_addr_len, time_alive);
+            int time_alive = std::stoi(rqd.buffer.substr(duration_alive_msg.size() + 1), nullptr, 10);
+            PrepareDurationAliveList(rqd.client_address, rqd.client_addr_len, time_alive);
         }
-        else if (rsd.buffer == shutting_down_msg)
+        else if (rqd.buffer == shutting_down_msg)
         {
             break;
         }
@@ -466,7 +466,7 @@ void server()
         return;
     }
 
-    INFO_PRINT_LN("Shutting down");
+    INFO_PRINT_LN("Server shutting down");
     return;
 }
 

@@ -32,11 +32,11 @@
 /*
  * Type
  */
-struct receive_socket_data
+struct receive_queue_data
 {
-    receive_socket_data() {}
+    receive_queue_data() {}
 
-    receive_socket_data(std::string arg_buffer, size_t arg_buffer_size, struct sockaddr_in arg_client_address,
+    receive_queue_data(std::string arg_buffer, size_t arg_buffer_size, struct sockaddr_in arg_client_address,
             size_t arg_client_addr_len): buffer(arg_buffer), buffer_size(arg_buffer_size),
                     client_address(arg_client_address), client_addr_len(arg_client_addr_len)
     {}
@@ -96,9 +96,9 @@ private:
     struct sockaddr_in seeder_server_address;
     int seeder_server_port;
 
-    std::mutex receive_socket_queue_mutex;
-    std::queue<receive_socket_data> receive_socket_queue;
-    std::condition_variable receive_socket_queue_cv;
+    std::mutex receive_queue_mutex;
+    std::queue<receive_queue_data> receive_queue;
+    std::condition_variable receive_queue_cv;
 
     std::atomic<bool> signal_received;
 

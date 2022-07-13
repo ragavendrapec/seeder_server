@@ -9,6 +9,9 @@
 #include <condition_variable>
 #include <cstring>
 #include <future>
+#include <sstream>
+
+#include <arpa/inet.h>
 
 #include "client.h"
 
@@ -25,7 +28,7 @@ static const int client_receive_buffer_size = 4096;
 const std::string command_prompt("\nPlease specify the option below:\n" \
         "1. Send hello to server\n" \
         "2. Get peer list\n" \
-        "3. Connect to another peer\n" \
+        "3. Message another peer\n" \
         "4. Nodes which are alive during the last x secs/mins/hrs/days etc\n" \
         "5. Quit/Shutdown client");
 
@@ -157,8 +160,12 @@ status_e Client::ProcessInput()
             {
                 ERROR_PRINT_LN("Sendto returned error: ", strerror(errno), "(", errno, ")");
             }
-            promise_hello_sent.set_value();
-            hello_sent.store(true);
+
+            if (!hello_sent.load())
+            {
+                promise_hello_sent.set_value();
+                hello_sent.store(true);
+            }
         }
         else if (input == "2" && hello_sent.load())
         {
@@ -226,7 +233,7 @@ status_e Client::ProcessInput()
         }
         else
         {
-            ERROR_PRINT_LN("Send hello before inputting other choice. Choose again between [1-5].");
+            ERROR_PRINT_LN("Input error or send hello before inputting other choice. Choose again between [1-5].");
         }
     }
 
@@ -302,7 +309,7 @@ void client()
         return;
     }
 
-    INFO_PRINT_LN("Shutting down");
+    INFO_PRINT_LN("Client shutting down");
 
     return;
 }
