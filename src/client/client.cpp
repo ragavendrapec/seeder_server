@@ -28,9 +28,8 @@ static const int client_receive_buffer_size = 4096;
 const std::string command_prompt("\nPlease specify the option below:\n" \
         "1. Send hello to server\n" \
         "2. Get peer list\n" \
-        "3. Message another peer\n" \
-        "4. Nodes which are alive during the last x secs/mins/hrs/days etc\n" \
-        "5. Quit/Shutdown client");
+        "3. Nodes which are alive during the last x secs/mins/hrs/days etc\n" \
+        "4. Quit/Shutdown client");
 
 /*
  * Globals
@@ -177,10 +176,6 @@ status_e Client::ProcessInput()
         }
         else if (input == "3" && hello_sent.load())
         {
-
-        }
-        else if (input == "4" && hello_sent.load())
-        {
             INFO_PRINT_LN("Specify time period like 20s, 10m, 2h, 1d:");
             std::string duration_alive;
             size_t find;
@@ -222,7 +217,7 @@ status_e Client::ProcessInput()
                 ERROR_PRINT_LN("Invalid time input, please specify again");
             }
         }
-        else if (input == "5")
+        else if (input == "4")
         {
             shutdown_requested.store(true);
 
