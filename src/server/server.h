@@ -73,9 +73,11 @@ public:
     void ReceiveSignalThreadFunction();
     status_e SetupSocket();
     status_e SocketThreadFunction();
-    status_e CheckAndAddToTable(struct sockaddr_in client_address, size_t client_addr_len);
-    status_e PrepareNodesList(struct sockaddr_in client_address, size_t client_addr_len);
-    status_e PingReceived(struct sockaddr_in client_address, size_t client_addr_len);
+    status_e CheckAndAddToTable(struct sockaddr_in client_address, size_t client_address_len);
+    status_e PrepareNodesList(struct sockaddr_in client_address, size_t client_address_len);
+    status_e PingReceived(struct sockaddr_in client_address, size_t client_address_len);
+    status_e PrepareDurationAliveList(struct sockaddr_in client_address,size_t client_address_len,
+            int time_alive);
     status_e ProcessReplyThreadFunction();
     status_e ClientStatusThreadFunction();
     status_e StartThreads();

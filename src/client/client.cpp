@@ -23,11 +23,11 @@ static const int seeder_server_default_port = 54321;
 static const long select_wait_seconds = 0;
 static const long select_wait_micro_seconds = 100000; // 100 milliseconds
 static const int client_receive_buffer_size = 4096;
-const std::string command_prompt("Please specify the option below:\n" \
+const std::string command_prompt("\nPlease specify the option below:\n" \
         "1. Send hello to server\n" \
         "2. Get peer list\n" \
         "3. Connect to another peer\n" \
-        "4. Nodes which are alive during the last x hours etc\n" \
+        "4. Nodes which are alive during the last x secs/mins/hrs/days etc\n" \
         "5. Quit/Shutdown client");
 
 /*
@@ -43,10 +43,17 @@ Client::Client()
     socket_thread = nullptr;
     process_input_thread = nullptr;
     ping_thread = nullptr;
+
+    promise_sent = false;
 }
 
 Client::~Client()
 {
+    if (!promise_sent)
+    {
+        hello_sent_promise.set_value();
+    }
+
     if (ping_thread)
     {
         ping_thread->join();
@@ -149,35 +156,67 @@ status_e Client::ProcessInput()
         if (input == "1")
         {
             if (sendto(client_socket, (void *)hello_msg.data(), hello_msg.size(),
-                    MSG_WAITALL, (struct sockaddr *) &server_address, server_address_len) != 0)
+                    MSG_WAITALL, (struct sockaddr *) &server_address, server_address_len) < 0)
             {
                 ERROR_PRINT_LN("Sendto returned error: ", strerror(errno), "(", errno, ")");
             }
-            hello_sent.set_value();
+            hello_sent_promise.set_value();
+            promise_sent = true;
         }
-        else if (input == "2")
+        else if (input == "2" && promise_sent == true)
         {
             if (sendto(client_socket, (void *)get_nodes_list_msg.data(), get_nodes_list_msg.size(),
-                                MSG_WAITALL, (struct sockaddr *) &server_address, server_address_len) != 0)
+                                MSG_WAITALL, (struct sockaddr *) &server_address, server_address_len) < 0)
             {
                 ERROR_PRINT_LN("Sendto returned error: ", strerror(errno), "(", errno, ")");
             }
         }
-        else if (input == "3")
+        else if (input == "3" && promise_sent == true)
         {
 
         }
-        else if (input == "4")
+        else if (input == "4" && promise_sent == true)
         {
-            INFO_PRINT_LN("Specify time period like 1h, 2h, 1d:");
+            INFO_PRINT_LN("Specify time period like 20s, 10m, 2h, 1d:");
             std::string duration_alive;
+            size_t find;
             std::cin >> input;
-            duration_alive = duration_alive_msg + "*" + input;
+            int time_in_seconds;
 
-            if (sendto(client_socket, (void *)duration_alive.data(), duration_alive.size(),
-                                            MSG_WAITALL, (struct sockaddr *) &server_address, server_address_len) != 0)
+            if ((find = input.find("s")) != std::string::npos ||
+                    (find = input.find("m")) != std::string::npos ||
+                    (find = input.find("h")) != std::string::npos ||
+                    (find = input.find("d")) != std::string::npos)
             {
-                ERROR_PRINT_LN("Sendto returned error: ", strerror(errno), "(", errno, ")");
+                if (input[find] == 's')
+                {
+                    time_in_seconds = std::stoi(input.substr(0, find), nullptr, 10);
+                }
+                else if (input[find] == 'm')
+                {
+                    time_in_seconds = std::stoi(input.substr(0, find), nullptr, 10) * 60;
+                }
+                else if (input[find] == 'h')
+                {
+                    time_in_seconds = std::stoi(input.substr(0, find), nullptr, 10) * 60 * 60;
+                }
+                if (input[find] == 'd')
+                {
+                    time_in_seconds = std::stoi(input.substr(0, find), nullptr, 10) * 60 * 60 * 24;
+                }
+                INFO_PRINT_LN("Time in seconds ", time_in_seconds);
+
+                duration_alive = duration_alive_msg + "*" + std::to_string(time_in_seconds);
+
+                if (sendto(client_socket, (void *)duration_alive.data(), duration_alive.size(),
+                                                MSG_WAITALL, (struct sockaddr *) &server_address, server_address_len) < 0)
+                {
+                    ERROR_PRINT_LN("Sendto returned error: ", strerror(errno), "(", errno, ")");
+                }
+            }
+            else
+            {
+                ERROR_PRINT_LN("Invalid time input, please specify again");
             }
         }
         else if (input == "5")
@@ -187,7 +226,7 @@ status_e Client::ProcessInput()
         }
         else
         {
-            INFO_PRINT_LN("Wrong input. Choose again between [1-5]");
+            ERROR_PRINT_LN("Send hello before inputting other choice. Choose again between [1-5].");
         }
     }
 
@@ -200,7 +239,7 @@ status_e Client::PingServer()
     int first_time;
 
     first_time = 0;
-        auto fut= hello_sent.get_future();
+    auto fut= hello_sent_promise.get_future();
 
     while(true)
     {
@@ -225,7 +264,7 @@ status_e Client::PingServer()
         {
             DEBUG_PRINT_LN("Sending ping now");
             if (sendto(client_socket, (void *)ping_msg.data(), ping_msg.size(),
-                                MSG_WAITALL, (struct sockaddr *) &server_address, server_address_len) != 0)
+                                MSG_WAITALL, (struct sockaddr *) &server_address, server_address_len) < 0)
             {
                 ERROR_PRINT_LN("Sendto returned error: ", strerror(errno), "(", errno, ")");
             }

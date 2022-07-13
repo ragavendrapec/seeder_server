@@ -21,9 +21,9 @@
 #define PRINT_LOGS                  (PRINT_ERROR | PRINT_INFO)
 //#define PRINT_LOGS                  (PRINT_ERROR)
 
-#define ERROR_PRINT_LN(...)         do{if(PRINT_LOGS & PRINT_ERROR) std::cout, __FUNCTION__, "[", __LINE__, "]: " __VA_ARGS__, std::endl;}while(0)
+#define ERROR_PRINT_LN(...)         do{if(PRINT_LOGS & PRINT_ERROR) std::cout, "[error]", __FUNCTION__, "[", __LINE__, "]: " __VA_ARGS__, std::endl;}while(0)
 #define INFO_PRINT_LN(...)          do{if(PRINT_LOGS & PRINT_INFO) std::cout, __VA_ARGS__, std::endl;}while(0)
-#define DEBUG_PRINT_LN(...)         do{if(PRINT_LOGS & PRINT_DEBUG) std::cout, __FUNCTION__, "[", __LINE__, "]: " __VA_ARGS__, std::endl;}while(0)
+#define DEBUG_PRINT_LN(...)         do{if(PRINT_LOGS & PRINT_DEBUG) std::cout, "[debug]", __FUNCTION__, "[", __LINE__, "]: " __VA_ARGS__, std::endl;}while(0)
 
 
 template <typename T>

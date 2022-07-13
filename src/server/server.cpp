@@ -299,6 +299,38 @@ status_e SeederServer::PingReceived(struct sockaddr_in client_address,
     return status_ok;
 }
 
+status_e SeederServer::PrepareDurationAliveList(struct sockaddr_in client_address,
+        size_t client_address_len, int time_alive)
+{
+    std::string buffer;
+
+    DEBUG_PRINT_LN("");
+
+    {
+        std::lock_guard<std::mutex> lock(client_info_list_mutex);
+        for(auto client_info : client_info_list)
+        {
+            std::chrono::duration<double> time_span = std::chrono::duration_cast<
+                                std::chrono::duration<double>>(std::chrono::steady_clock::now() - client_info.joining_time);
+            DEBUG_PRINT_LN("Client ", client_info.client_address.sin_addr.s_addr, ":", client_info.client_address.sin_port,
+                    "is alive for ", time_span.count(), " seconds");
+            if (time_span.count() > time_alive)
+            {
+                buffer.append(std::to_string(client_info.client_address.sin_addr.s_addr));
+                buffer.append("*");
+                buffer.append(std::to_string(client_info.client_address.sin_port));
+                buffer.append("*");
+            }
+        }
+    }
+
+    sendto(seeder_server_socket, (char *)buffer.c_str(), buffer.size(), MSG_WAITALL,
+            (struct sockaddr *) &client_address, client_address_len);
+
+    DEBUG_PRINT_LN("completed");
+    return status_ok;
+}
+
 status_e SeederServer::ProcessReplyThreadFunction()
 {
     receive_socket_data rsd;
@@ -338,11 +370,13 @@ status_e SeederServer::ProcessReplyThreadFunction()
         }
         else if(rsd.buffer == ping_msg)
         {
+            // Update last ping received time in client info list
             PingReceived(rsd.client_address, rsd.client_addr_len);
         }
         else if ((find = rsd.buffer.find(duration_alive_msg)) != std::string::npos)
         {
-
+            int time_alive = std::stoi(rsd.buffer.substr(duration_alive_msg.size() + 1), nullptr, 10);
+            PrepareDurationAliveList(rsd.client_address, rsd.client_addr_len, time_alive);
         }
     }
 
