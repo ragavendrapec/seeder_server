@@ -43,10 +43,17 @@ SeederServer::SeederServer()
     reply_thread = nullptr;
     client_status_thread = nullptr;
     seeder_server_port = seeder_server_default_port;
+
+    seeder_server_socket = -1;
 }
 
 SeederServer::~SeederServer()
 {
+    if (seeder_server_socket > 0)
+    {
+        close(seeder_server_socket);
+    }
+
     if (client_status_thread)
     {
         client_status_thread->join();

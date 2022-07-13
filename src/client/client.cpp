@@ -11,6 +11,7 @@
 #include <future>
 #include <sstream>
 
+#include <unistd.h>
 #include <arpa/inet.h>
 
 #include "client.h"
@@ -45,10 +46,17 @@ Client::Client()
     ping_mutex_variable = false;
 
     hello_sent.store(false);
+
+    client_socket = -1;
 }
 
 Client::~Client()
 {
+    if (client_socket)
+    {
+        close(client_socket);
+    }
+
     if (!hello_sent.load())
     {
         promise_hello_sent.set_value();
