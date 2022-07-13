@@ -1,0 +1,79 @@
+
+            INFO_PRINT_LN("Specify peer's IP address and port (eg. 127.0.0.1:47851):");
+            std::cin >> input;
+            size_t find;
+            std::string ip_address;
+            uint port;
+            struct sockaddr_in peer_address;
+            size_t peer_address_len;
+            std::stringstream ss;
+
+            if ((find = input.find(":")) != std::string::npos)
+            {
+                ip_address = input.substr(0, find);
+                ss << input.substr(find + 1);
+                ss >> port;
+
+                if (inet_pton(AF_INET, ip_address.c_str(), &(peer_address.sin_addr)) != 1 || port < 0
+                        || port > 65535)
+                {
+                    ERROR_PRINT_LN("IP address/port format wrong, please specify again");
+                    continue;
+                }
+                INFO_PRINT_LN("IP address ", ip_address, " port ", port, " ", peer_address.sin_addr.s_addr);
+
+                peer_address.sin_family = AF_INET;
+                peer_address.sin_port = htons(port);
+                peer_address.sin_addr.s_addr = htonl(INADDR_ANY);
+                peer_address_len = sizeof(peer_address);
+
+                if (sendto(client_socket, (void *)hello_msg.data(), hello_msg.size(),
+                        MSG_WAITALL, (struct sockaddr *) &peer_address, peer_address_len) < 0)
+                {
+                    ERROR_PRINT_LN("Sendto returned error: ", strerror(errno), "(", errno, ")");
+                }
+
+                {
+                    std::lock_guard<std::mutex> lock(peer_info_list_mutex);
+                    bool match_found = false;
+                    for (auto peer_info : peer_info_list)
+                    {
+                        if (peer_info.peer_address.sin_addr.s_addr == peer_address.sin_addr.s_addr
+                                && peer_info.peer_address.sin_port == peer_address.sin_port)
+                        {
+                            match_found = true;
+                            break;
+                        }
+                    }
+
+                    if (!match_found)
+                    {
+                        peer_info_list.emplace_back(peer_address, peer_address_len);
+                    }
+                }
+            }
+            else
+            {
+                ERROR_PRINT_LN("Invalid IP address/port input, please specify again");
+            }
+        
+		
+
+    std::mutex peer_info_list_mutex;
+    std::list<peer_info> peer_info_list;
+
+
+struct peer_info
+{
+    peer_info() {}
+
+    peer_info(struct sockaddr_in arg_peer_address, size_t arg_peer_address_len)
+        : peer_address_len(arg_peer_address_len)
+    {
+        memcpy(&peer_address, &arg_peer_address, arg_peer_address_len);
+    }
+
+    struct sockaddr_in peer_address;
+    size_t peer_address_len;
+};
+

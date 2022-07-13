@@ -11,13 +11,13 @@
 ### Build
 
 In a fresh Ubuntu environment run the below script only once to install 
-the necessary dependencies. Admin persmissions would be required to install
+the necessary dependencies. Admin persmissions would be required to install.
 
 
     $ cd build
     $ ./build_dependencies.sh
 
-For building the source kindly issue the following command
+For building the source kindly issue the following command.
         
     $ cd build
     $ ./build.sh
