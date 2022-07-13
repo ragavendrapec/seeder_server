@@ -161,5 +161,9 @@ Server doesn't print any logs and all the operations are requested from client. 
 
 - Further the client periodically (every 10 seconds) sends a ping to the server, if the server doesn't receive a ping for more than 10 seconds it assumes the client has died and proceeds to remove the client from the peer list it maintains. 
 - This feature can be tested by opening multiple clients from various command prompts and registering with the server by sending a `1` from all the clients and closing one of them and waiting for 10 seconds or so and issuing a `2` from the active client.
+- Further, debug logs can be enabled by defining PRINT_LOGS in `src/util/util.h`
 
-	
+	```
+	#define PRINT_LOGS                  (PRINT_ERROR | PRINT_INFO | PRINT_DEBUG)
+	```
+
