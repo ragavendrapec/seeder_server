@@ -41,6 +41,7 @@ Client::Client()
     socket_thread = nullptr;
     process_input_thread = nullptr;
     ping_thread = nullptr;
+    reply_thread = nullptr;
     ping_mutex_variable = false;
 
     hello_sent.store(false);
@@ -51,6 +52,11 @@ Client::~Client()
     if (!hello_sent.load())
     {
         promise_hello_sent.set_value();
+    }
+
+    if (reply_thread)
+    {
+        reply_thread->join();
     }
 
     if (ping_thread)
@@ -94,13 +100,13 @@ status_e Client::SetupSocket()
 
     server_address_len = sizeof(server_address);
 
-    socket_thread.reset(new std::thread(&Client::SocketFunction, this));
+    socket_thread.reset(new std::thread(&Client::SocketThreadFunction, this));
 
     DEBUG_PRINT_LN("completed");
     return status_ok;
 }
 
-status_e Client::SocketFunction()
+status_e Client::SocketThreadFunction()
 {
     fd_set readfds;
     struct timeval tv;
@@ -132,7 +138,14 @@ status_e Client::SocketFunction()
                                                MSG_WAITALL, nullptr, nullptr);
 
                 buffer[num_bytes_received] = '\0';
-                INFO_PRINT_LN("", buffer);
+//                INFO_PRINT_LN("", buffer, " ", num_bytes_received);
+
+                // Emplace to queue and notify
+                {
+                    std::lock_guard<std::mutex> lock(receive_queue_mutex);
+                    receive_queue.emplace(buffer, num_bytes_received);
+                    receive_queue_cv.notify_all();
+                }
             }
         }
     }
@@ -141,7 +154,7 @@ status_e Client::SocketFunction()
     return status_ok;
 }
 
-status_e Client::ProcessInput()
+status_e Client::ProcessInputThreadFunction()
 {
     std::string input;
 
@@ -172,7 +185,9 @@ status_e Client::ProcessInput()
                                 MSG_WAITALL, (struct sockaddr *) &server_address, server_address_len) < 0)
             {
                 ERROR_PRINT_LN("Sendto returned error: ", strerror(errno), "(", errno, ")");
+                continue;
             }
+            std::this_thread::sleep_for (std::chrono::seconds(1));
         }
         else if (input == "3" && hello_sent.load())
         {
@@ -216,19 +231,31 @@ status_e Client::ProcessInput()
             {
                 ERROR_PRINT_LN("Invalid time input, please specify again");
             }
+            std::this_thread::sleep_for (std::chrono::seconds(1));
         }
         else if (input == "4")
         {
             shutdown_requested.store(true);
 
             promise_main_thread.set_value();
-            std::unique_lock<std::mutex> lock(ping_mutex);
-            ping_mutex_variable = true;
-            ping_cv.notify_all();
+
+            {
+                std::unique_lock<std::mutex> lock(ping_mutex);
+                ping_mutex_variable = true;
+                ping_cv.notify_all();
+            }
+
+            {
+                std::string dummy_buffer(shutting_down_msg);
+                std::lock_guard<std::mutex> lock(receive_queue_mutex);
+                // Push an element with shutdown msg to inform ProcessReplyFunction to exit from loop
+                receive_queue.emplace(dummy_buffer, dummy_buffer.size());
+                receive_queue_cv.notify_all();
+            }
         }
         else
         {
-            ERROR_PRINT_LN("Input error or send hello before inputting other choice. Choose again between [1-5].");
+            ERROR_PRINT_LN("Input error or send hello before inputting other choice. Choose again between [1-4].");
         }
     }
 
@@ -236,9 +263,10 @@ status_e Client::ProcessInput()
     return status_ok;
 }
 
-status_e Client::PingServer()
+status_e Client::PingServerThreadFunction()
 {
     int first_time;
+    DEBUG_PRINT_LN("");
 
     first_time = 0;
     auto fut = promise_hello_sent.get_future();
@@ -273,9 +301,66 @@ status_e Client::PingServer()
         }
     }
 
+    DEBUG_PRINT_LN("completed");
     return status_ok;
 }
 
+status_e Client::ProcessReplyThreadFunction()
+{
+    receive_queue_data rqd;
+    size_t position1;
+    size_t position2;
+
+    DEBUG_PRINT_LN("");
+
+    while(true)
+    {
+        {
+            std::unique_lock<std::mutex> lock(receive_queue_mutex);
+            receive_queue_cv.wait(lock, [this]()
+                {
+                    return !receive_queue.empty();
+                });
+            if (!receive_queue.empty())
+            {
+                rqd = receive_queue.front();
+                receive_queue.pop();
+            }
+        }
+
+        if ((position1 = rqd.buffer.find(get_nodes_list_msg)) != std::string::npos)
+        {
+            INFO_PRINT_LN("Peer IP addresses:Peer ports");
+            position1 = get_nodes_list_msg.size() + 1;
+            position2 = rqd.buffer.find("*", position1);
+            while(position2 != std::string::npos)
+            {
+                INFO_PRINT_LN("", rqd.buffer.substr(position1, position2 - position1));
+                position1 = position2 + 1;
+                position2 = rqd.buffer.find("*", position1);
+            }
+        }
+        else if ((position1 = rqd.buffer.find(duration_alive_msg)) != std::string::npos)
+        {
+            INFO_PRINT_LN("Peer IP addresses:Peer ports");
+            position1 = duration_alive_msg.size() + 1;
+            position2 = rqd.buffer.find("*", position1);
+            while(position2 != std::string::npos)
+            {
+                INFO_PRINT_LN("", rqd.buffer.substr(position1, position2 - position1));
+                position1 = position2 + 1;
+                position2 = rqd.buffer.find("*", position1);
+            }
+        }
+        else if (rqd.buffer == shutting_down_msg)
+        {
+            break;
+        }
+    }
+
+    DEBUG_PRINT_LN("completed");
+    return status_ok;
+}
 status_e Client::StartThreads()
 {
     if (SetupSocket() != status_ok)
@@ -284,9 +369,11 @@ status_e Client::StartThreads()
         return status_error;
     }
 
-    process_input_thread.reset(new std::thread(&Client::ProcessInput, this));
+    process_input_thread.reset(new std::thread(&Client::ProcessInputThreadFunction, this));
 
-    ping_thread.reset(new std::thread(&Client::PingServer, this));
+    ping_thread.reset(new std::thread(&Client::PingServerThreadFunction, this));
+
+    reply_thread.reset(new std::thread(&Client::ProcessReplyThreadFunction, this));
 
     auto future = promise_main_thread.get_future();
     future.wait();

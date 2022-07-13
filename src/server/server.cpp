@@ -10,7 +10,7 @@
 #include <cstring>
 #include <string>
 #include <unistd.h>
-#include <sqlite3.h>
+#include <arpa/inet.h>
 
 #include "server.h"
 
@@ -266,15 +266,24 @@ status_e SeederServer::PrepareNodesList(struct sockaddr_in client_address,
         size_t client_address_len)
 {
     std::string buffer;
+    char ip_address[INET_ADDRSTRLEN];
 
     DEBUG_PRINT_LN("");
 
     {
+        buffer.append(get_nodes_list_msg);
+        buffer.append("*");
         std::lock_guard<std::mutex> lock(client_info_list_mutex);
         for(auto client_info : client_info_list)
         {
-            buffer.append(std::to_string(client_info.client_address.sin_addr.s_addr));
-            buffer.append("*");
+            std::memset(ip_address, 0, sizeof(ip_address));
+            if (inet_ntop(AF_INET, &client_info.client_address.sin_addr, ip_address, INET_ADDRSTRLEN) == 0x0)
+            {
+                return status_error;
+            }
+
+            buffer.append(ip_address);
+            buffer.append(":");
             buffer.append(std::to_string(client_info.client_address.sin_port));
             buffer.append("*");
         }
@@ -312,10 +321,13 @@ status_e SeederServer::PrepareDurationAliveList(struct sockaddr_in client_addres
         size_t client_address_len, int time_alive)
 {
     std::string buffer;
+    char ip_address[INET_ADDRSTRLEN];
 
     DEBUG_PRINT_LN("");
 
     {
+        buffer.append(duration_alive_msg);
+        buffer.append("*");
         std::lock_guard<std::mutex> lock(client_info_list_mutex);
         for(auto client_info : client_info_list)
         {
@@ -323,10 +335,17 @@ status_e SeederServer::PrepareDurationAliveList(struct sockaddr_in client_addres
                                 std::chrono::duration<double>>(std::chrono::steady_clock::now() - client_info.joining_time);
             DEBUG_PRINT_LN("Client ", client_info.client_address.sin_addr.s_addr, ":", client_info.client_address.sin_port,
                     "is alive for ", time_span.count(), " seconds");
+
+            std::memset(ip_address, 0, sizeof(ip_address));
+            if (inet_ntop(AF_INET, &client_info.client_address.sin_addr, ip_address, INET_ADDRSTRLEN) == 0x0)
+            {
+                return status_error;
+            }
+
             if (time_span.count() > time_alive)
             {
-                buffer.append(std::to_string(client_info.client_address.sin_addr.s_addr));
-                buffer.append("*");
+                buffer.append(ip_address);
+                buffer.append(":");
                 buffer.append(std::to_string(client_info.client_address.sin_port));
                 buffer.append("*");
             }
@@ -343,7 +362,6 @@ status_e SeederServer::PrepareDurationAliveList(struct sockaddr_in client_addres
 status_e SeederServer::ProcessReplyThreadFunction()
 {
     receive_queue_data rqd;
-    size_t find;
 
     DEBUG_PRINT_LN("");
 
@@ -377,7 +395,7 @@ status_e SeederServer::ProcessReplyThreadFunction()
             // Update last ping received time in client info list
             PingReceived(rqd.client_address, rqd.client_addr_len);
         }
-        else if ((find = rqd.buffer.find(duration_alive_msg)) != std::string::npos)
+        else if (rqd.buffer.find(duration_alive_msg) != std::string::npos)
         {
             int time_alive = std::stoi(rqd.buffer.substr(duration_alive_msg.size() + 1), nullptr, 10);
             PrepareDurationAliveList(rqd.client_address, rqd.client_addr_len, time_alive);
