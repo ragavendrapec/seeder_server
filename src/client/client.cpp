@@ -83,7 +83,7 @@ Client::~Client()
     }
 }
 
-status_e Client::SetupSocket()
+status_e Client::SetupSocket(int argc, char **argv)
 {
     DEBUG_PRINT_LN("");
 
@@ -104,7 +104,18 @@ status_e Client::SetupSocket()
     // Filling server information
     server_address.sin_family = AF_INET;
     server_address.sin_port = htons(seeder_server_default_port);
-    server_address.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (argc > 1)
+    {
+        if (inet_pton(AF_INET, argv[1], &server_address.sin_addr) <= 0)
+        {
+            ERROR_PRINT_LN("inet_pton error");
+            return status_error;
+        }
+    }
+    else
+    {
+        server_address.sin_addr.s_addr = htonl(INADDR_ANY);
+    }
 
     server_address_len = sizeof(server_address);
 
@@ -369,9 +380,9 @@ status_e Client::ProcessReplyThreadFunction()
     DEBUG_PRINT_LN("completed");
     return status_ok;
 }
-status_e Client::StartThreads()
+status_e Client::StartThreads(int argc, char **argv)
 {
-    if (SetupSocket() != status_ok)
+    if (SetupSocket(argc, argv) != status_ok)
     {
         shutdown_requested.store(true);
         return status_error;
@@ -389,11 +400,11 @@ status_e Client::StartThreads()
     return status_ok;
 }
 
-void client()
+void client(int argc, char **argv)
 {
     Client c;
 
-    if(c.StartThreads() != status_ok)
+    if(c.StartThreads(argc, argv) != status_ok)
     {
         ERROR_PRINT_LN("Start Threads failed");
         return;
@@ -404,9 +415,9 @@ void client()
     return;
 }
 
-int main()
+int main(int argc, char **argv)
 {
-    client();
+    client(argc, argv);
 
     return 0;
 }

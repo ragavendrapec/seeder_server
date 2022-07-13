@@ -47,10 +47,10 @@ public:
     Client();
     ~Client();
 
-    status_e SetupSocket();
+    status_e SetupSocket(int argc, char **argv);
     status_e ProcessInputThreadFunction();
     status_e PingServerThreadFunction();
-    status_e StartThreads();
+    status_e StartThreads(int argc, char **argv);
     status_e SocketThreadFunction();
     status_e ProcessReplyThreadFunction();
 

@@ -37,10 +37,17 @@ For running the server, open a command prompt
 	$ cd install
 	$ ./server
 
-For running the client, open another command prompt
+By default server runs on port 54321
+
+For running the client, open another command prompt (here the default server address is assumed).
 
 	$ cd install
 	$ ./client
+
+Client can also be run by specifying the server's IPv4 address as below (if the server and client are run from different machines).
+
+	$ cd install
+	$ ./client 192.168.10.175
 
 ### Explanation
 
