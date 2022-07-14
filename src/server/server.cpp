@@ -291,8 +291,12 @@ status_e SeederServer::PrepareNodesList(struct sockaddr_in client_address,
 
             buffer.append(ip_address);
             buffer.append(":");
-            buffer.append(std::to_string(client_info.client_address.sin_port));
+            buffer.append(std::to_string(ntohs(client_info.client_address.sin_port)));
             buffer.append("*");
+            buffer.append(peer_info_msg);
+            buffer.append("*");
+            buffer.append(client_info.peer_info_list);
+            buffer.append("%");
         }
     }
 
@@ -353,7 +357,7 @@ status_e SeederServer::PrepareDurationAliveList(struct sockaddr_in client_addres
             {
                 buffer.append(ip_address);
                 buffer.append(":");
-                buffer.append(std::to_string(client_info.client_address.sin_port));
+                buffer.append(std::to_string(ntohs(client_info.client_address.sin_port)));
                 buffer.append("*");
             }
         }
@@ -361,6 +365,31 @@ status_e SeederServer::PrepareDurationAliveList(struct sockaddr_in client_addres
 
     sendto(seeder_server_socket, (char *)buffer.c_str(), buffer.size(), MSG_WAITALL,
             (struct sockaddr *) &client_address, client_address_len);
+
+    DEBUG_PRINT_LN("completed");
+    return status_ok;
+}
+
+status_e SeederServer::PeerInfoListReceived(struct sockaddr_in client_address,
+        size_t client_address_len, std::string peer_info_list)
+{
+    DEBUG_PRINT_LN("");
+
+    {
+        DEBUG_PRINT_LN("", peer_info_list);
+        std::lock_guard<std::mutex> lock(client_info_list_mutex);
+        for(auto &client_info : client_info_list)
+        {
+            if (client_info.client_address.sin_addr.s_addr == client_address.sin_addr.s_addr
+                            && client_info.client_address.sin_port == client_address.sin_port)
+            {
+                if (client_info.peer_info_list.compare(peer_info_list) != 0)
+                {
+                    client_info.peer_info_list = peer_info_list;
+                }
+            }
+        }
+    }
 
     DEBUG_PRINT_LN("completed");
     return status_ok;
@@ -406,6 +435,11 @@ status_e SeederServer::ProcessReplyThreadFunction()
         {
             int time_alive = std::stoi(rqd.buffer.substr(duration_alive_msg.size() + 1), nullptr, 10);
             PrepareDurationAliveList(rqd.client_address, rqd.client_addr_len, time_alive);
+        }
+        else if (rqd.buffer.find(peer_info_msg) != std::string::npos)
+        {
+            // Update peer info (this client is ) in client info list
+            PeerInfoListReceived(rqd.client_address, rqd.client_addr_len, rqd.buffer.substr(peer_info_msg.size() + 1));
         }
         else if (rqd.buffer == shutting_down_msg)
         {

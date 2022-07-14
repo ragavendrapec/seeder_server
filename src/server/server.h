@@ -62,6 +62,7 @@ struct client_info
     size_t client_addr_len;
     std::chrono::steady_clock::time_point joining_time;
     std::chrono::steady_clock::time_point last_ping_received_time;
+    std::string peer_info_list;
 };
 
 class SeederServer
@@ -79,6 +80,8 @@ public:
     status_e PingReceived(struct sockaddr_in client_address, size_t client_address_len);
     status_e PrepareDurationAliveList(struct sockaddr_in client_address,size_t client_address_len,
             int time_alive);
+    status_e PeerInfoListReceived(struct sockaddr_in client_address,size_t client_address_len,
+            std::string peer_info_list);
     status_e ProcessReplyThreadFunction();
     status_e ClientStatusThreadFunction();
     status_e StartThreads();

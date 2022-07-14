@@ -12,6 +12,7 @@
 #include <memory>
 #include <atomic>
 #include <queue>
+#include <list>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -39,6 +40,19 @@ struct receive_queue_data
 
     std::string buffer;
     size_t buffer_size;
+};
+
+struct peer_info
+{
+    peer_info() {}
+
+    peer_info(std::string arg_peer_ip_address, uint16_t arg_peer_port)
+        : peer_ip_address(arg_peer_ip_address), peer_port(arg_peer_port)
+    {
+    }
+
+    std::string peer_ip_address;
+    uint16_t peer_port;
 };
 
 class Client
@@ -76,6 +90,9 @@ private:
     std::mutex receive_queue_mutex;
     std::queue<receive_queue_data> receive_queue;
     std::condition_variable receive_queue_cv;
+
+    std::mutex peer_info_list_mutex;
+    std::list<peer_info> peer_info_list;
 
     int client_socket;
 };

@@ -30,7 +30,8 @@ const std::string command_prompt("\nPlease specify the option below:\n" \
         "1. Send hello to server\n" \
         "2. Get peer list\n" \
         "3. Nodes which are alive during the last x secs/mins/hrs/days etc\n" \
-        "4. Quit/Shutdown client");
+        "4. Msg peer nodes\n" \
+        "5. Quit/Shutdown client");
 
 /*
  * Globals
@@ -52,11 +53,6 @@ Client::Client()
 
 Client::~Client()
 {
-    if (client_socket)
-    {
-        close(client_socket);
-    }
-
     if (!hello_sent.load())
     {
         promise_hello_sent.set_value();
@@ -81,10 +77,17 @@ Client::~Client()
     {
         socket_thread->join();
     }
+
+    if (client_socket)
+    {
+        close(client_socket);
+    }
 }
 
 status_e Client::SetupSocket(int argc, char **argv)
 {
+    struct sockaddr_in client_address;
+
     DEBUG_PRINT_LN("");
 
     if ((client_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == 0)
@@ -119,6 +122,17 @@ status_e Client::SetupSocket(int argc, char **argv)
 
     server_address_len = sizeof(server_address);
 
+    client_address.sin_family = AF_INET;
+    client_address.sin_port = 0;
+    client_address.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+    if ( bind(client_socket, reinterpret_cast<sockaddr *>(&client_address),
+                    sizeof(client_address)) < 0 )
+    {
+        ERROR_PRINT_LN("bind error");
+        return status_error;
+    }
+
     socket_thread.reset(new std::thread(&Client::SocketThreadFunction, this));
 
     DEBUG_PRINT_LN("completed");
@@ -133,14 +147,19 @@ status_e Client::SocketThreadFunction()
     int result;
     char buffer[client_receive_buffer_size];
     size_t num_bytes_received;
+    struct sockaddr_in addr;
+    socklen_t addr_len;
+    char ip_address[INET_ADDRSTRLEN];
 
     DEBUG_PRINT_LN("");
     nfds = 0;
 
+    addr_len = sizeof(addr);
     while(!shutdown_requested.load())
     {
         FD_ZERO(&readfds);
         FD_SET(client_socket, &readfds);
+        std::memset(buffer, 0, client_receive_buffer_size);
 
         nfds = client_socket + 1;
 
@@ -153,17 +172,27 @@ status_e Client::SocketThreadFunction()
         {
             if (FD_ISSET(client_socket, &readfds))
             {
-                num_bytes_received = recvfrom(client_socket, (char *)buffer, client_receive_buffer_size,
-                                               MSG_WAITALL, nullptr, nullptr);
-
-                buffer[num_bytes_received] = '\0';
-//                INFO_PRINT_LN("", buffer, " ", num_bytes_received);
-
-                // Emplace to queue and notify
+                if ((num_bytes_received = recvfrom(client_socket, (char *)buffer, client_receive_buffer_size,
+                                               MSG_WAITALL, (struct sockaddr *) &addr,
+                                               &addr_len)) > 0)
                 {
-                    std::lock_guard<std::mutex> lock(receive_queue_mutex);
-                    receive_queue.emplace(buffer, num_bytes_received);
-                    receive_queue_cv.notify_all();
+                    buffer[num_bytes_received] = '\0';
+                    if (buffer == hello_msg)
+                    {
+                        std::memset(ip_address, 0, sizeof(ip_address));
+                        if (inet_ntop(AF_INET, &addr.sin_addr, ip_address, INET_ADDRSTRLEN) == 0x0)
+                        {
+                            return status_error;
+                        }
+                        INFO_PRINT_LN("", buffer, " from ", ip_address, ":", ntohs(addr.sin_port));
+                    }
+
+                    // Emplace to queue and notify
+                    {
+                        std::lock_guard<std::mutex> lock(receive_queue_mutex);
+                        receive_queue.emplace(buffer, num_bytes_received);
+                        receive_queue_cv.notify_all();
+                    }
                 }
             }
         }
@@ -254,6 +283,66 @@ status_e Client::ProcessInputThreadFunction()
         }
         else if (input == "4")
         {
+            INFO_PRINT_LN("Specify peer's IP address and port (eg. 127.0.0.1:47851):");
+            std::cin >> input;
+            size_t find;
+            std::string ip_address;
+            uint port;
+            struct sockaddr_in peer_address;
+            size_t peer_address_len;
+            std::stringstream ss;
+
+            if ((find = input.find(":")) != std::string::npos)
+            {
+                ip_address = input.substr(0, find);
+                ss << input.substr(find + 1);
+                ss >> port;
+
+                if (inet_pton(AF_INET, ip_address.c_str(), &(peer_address.sin_addr)) != 1 || port < 0
+                     || port > 65535)
+                {
+                    ERROR_PRINT_LN("IP address/port format wrong, please specify again");
+                    continue;
+                }
+
+                peer_address.sin_family = AF_INET;
+                peer_address.sin_port = htons(port);
+//                peer_address.sin_addr.s_addr = inet_addr(ip_address.c_str());
+                peer_address_len = sizeof(peer_address);
+//                INFO_PRINT_LN("IP address ", ip_address, " port ", port, " ", peer_address.sin_addr.s_addr);
+
+                if (sendto(client_socket, (void *)hello_msg.data(), hello_msg.size(),
+                        MSG_WAITALL, (struct sockaddr *) &peer_address, peer_address_len) < 0)
+                {
+                    ERROR_PRINT_LN("Sendto returned error: ", strerror(errno), "(", errno, ")");
+                }
+
+                {
+                    std::lock_guard<std::mutex> lock(peer_info_list_mutex);
+                    bool match_found = false;
+                    for (auto peer_info : peer_info_list)
+                    {
+                        if ((peer_info.peer_ip_address.compare(ip_address) == 0)
+                             && (peer_info.peer_port == (uint16_t)port))
+                        {
+                            match_found = true;
+                            break;
+                        }
+                    }
+
+                    if (!match_found)
+                    {
+                        peer_info_list.emplace_back(ip_address, port);
+                    }
+                }
+            }
+            else
+            {
+                ERROR_PRINT_LN("Invalid IP address/port input, please specify again");
+            }
+        }
+        else if (input == "5")
+        {
             shutdown_requested.store(true);
 
             promise_main_thread.set_value();
@@ -274,7 +363,7 @@ status_e Client::ProcessInputThreadFunction()
         }
         else
         {
-            ERROR_PRINT_LN("Input error or send hello before inputting other choice. Choose again between [1-4].");
+            ERROR_PRINT_LN("Input error or send hello before inputting other choice. Choose again between [1-5].");
         }
     }
 
@@ -285,6 +374,7 @@ status_e Client::ProcessInputThreadFunction()
 status_e Client::PingServerThreadFunction()
 {
     int first_time;
+    std::string peer_info_list_msg;
     DEBUG_PRINT_LN("");
 
     first_time = 0;
@@ -314,6 +404,23 @@ status_e Client::PingServerThreadFunction()
 
         DEBUG_PRINT_LN("Sending ping now");
         if (sendto(client_socket, (void *)ping_msg.data(), ping_msg.size(),
+                            MSG_WAITALL, (struct sockaddr *) &server_address, server_address_len) < 0)
+        {
+            ERROR_PRINT_LN("Sendto returned error: ", strerror(errno), "(", errno, ")");
+        }
+
+        DEBUG_PRINT_LN("Also send the list of clients/nodes I'm msging to");
+        peer_info_list_msg = peer_info_msg + "*";
+        {
+            std::lock_guard<std::mutex> lock(peer_info_list_mutex);
+            for (auto peer_info : peer_info_list)
+            {
+                peer_info_list_msg += peer_info.peer_ip_address + ":" + std::to_string(peer_info.peer_port) + "*";
+            }
+        }
+
+//        INFO_PRINT_LN("", peer_info_list_msg);
+        if (sendto(client_socket, (void *)peer_info_list_msg.data(), peer_info_list_msg.size(),
                             MSG_WAITALL, (struct sockaddr *) &server_address, server_address_len) < 0)
         {
             ERROR_PRINT_LN("Sendto returned error: ", strerror(errno), "(", errno, ")");
@@ -349,19 +456,19 @@ status_e Client::ProcessReplyThreadFunction()
 
         if ((position1 = rqd.buffer.find(get_nodes_list_msg)) != std::string::npos)
         {
-            INFO_PRINT_LN("Peer IP addresses:Peer ports");
+            INFO_PRINT_LN("IP addresses:Ports*peer_info_list");
             position1 = get_nodes_list_msg.size() + 1;
-            position2 = rqd.buffer.find("*", position1);
+            position2 = rqd.buffer.find("%", position1);
             while(position2 != std::string::npos)
             {
                 INFO_PRINT_LN("", rqd.buffer.substr(position1, position2 - position1));
                 position1 = position2 + 1;
-                position2 = rqd.buffer.find("*", position1);
+                position2 = rqd.buffer.find("%", position1);
             }
         }
         else if ((position1 = rqd.buffer.find(duration_alive_msg)) != std::string::npos)
         {
-            INFO_PRINT_LN("Peer IP addresses:Peer ports");
+            INFO_PRINT_LN("IP addresses:Ports");
             position1 = duration_alive_msg.size() + 1;
             position2 = rqd.buffer.find("*", position1);
             while(position2 != std::string::npos)
