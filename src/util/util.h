@@ -9,6 +9,9 @@
 #define UTIL_H_
 
 #include <iostream>
+#include <queue>
+#include <mutex>
+#include <condition_variable>
 
 /*
  * Macro
@@ -58,6 +61,40 @@ enum status_e {
     status_error = -1
 };
 
+template<typename T>
+class Queue
+{
+public:
+    Queue() = default;
+    Queue(const Queue&) = delete; // disable copy
+    Queue& operator=(const Queue&) = delete; // disable assignment
+
+    void Push(T& data)
+    {
+        std::lock_guard<std::mutex> lock(receive_queue_mutex);
+        receive_queue.push(data);
+        receive_queue_cv.notify_all();
+    }
+
+    void Pop(T& data)
+    {
+        std::unique_lock<std::mutex> lock(receive_queue_mutex);
+        receive_queue_cv.wait(lock, [this]()
+            {
+                return !receive_queue.empty();
+            });
+        if (!receive_queue.empty())
+        {
+            data = receive_queue.front();
+            receive_queue.pop();
+        }
+    }
+
+private:
+    std::mutex receive_queue_mutex;
+    std::queue<T> receive_queue;
+    std::condition_variable receive_queue_cv;
+};
 /*
  * Function Declaration
  */

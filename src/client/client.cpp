@@ -187,12 +187,9 @@ status_e Client::SocketThreadFunction()
                         INFO_PRINT_LN("", buffer, " from ", ip_address, ":", ntohs(addr.sin_port));
                     }
 
-                    // Emplace to queue and notify
-                    {
-                        std::lock_guard<std::mutex> lock(receive_queue_mutex);
-                        receive_queue.emplace(buffer, num_bytes_received);
-                        receive_queue_cv.notify_all();
-                    }
+                    // Push the buffer elements to queue
+                    receive_queue_data rqd(buffer, num_bytes_received);
+                    receive_queue.Push(rqd);
                 }
             }
         }
@@ -354,11 +351,9 @@ status_e Client::ProcessInputThreadFunction()
             }
 
             {
-                std::string dummy_buffer(shutting_down_msg);
-                std::lock_guard<std::mutex> lock(receive_queue_mutex);
                 // Push an element with shutdown msg to inform ProcessReplyFunction to exit from loop
-                receive_queue.emplace(dummy_buffer, dummy_buffer.size());
-                receive_queue_cv.notify_all();
+                receive_queue_data rqd(shutting_down_msg, shutting_down_msg.size());
+                receive_queue.Push(rqd);
             }
         }
         else
@@ -441,18 +436,9 @@ status_e Client::ProcessReplyThreadFunction()
 
     while(true)
     {
-        {
-            std::unique_lock<std::mutex> lock(receive_queue_mutex);
-            receive_queue_cv.wait(lock, [this]()
-                {
-                    return !receive_queue.empty();
-                });
-            if (!receive_queue.empty())
-            {
-                rqd = receive_queue.front();
-                receive_queue.pop();
-            }
-        }
+        // Pop function will wait for an element to be pushed to queue and returns
+        // the front element from the queue.
+        receive_queue.Pop(rqd);
 
         if ((position1 = rqd.buffer.find(get_nodes_list_msg)) != std::string::npos)
         {

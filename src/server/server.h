@@ -99,9 +99,7 @@ private:
     struct sockaddr_in seeder_server_address;
     int seeder_server_port;
 
-    std::mutex receive_queue_mutex;
-    std::queue<receive_queue_data> receive_queue;
-    std::condition_variable receive_queue_cv;
+    Queue<receive_queue_data> receive_queue;
 
     std::atomic<bool> signal_received;
 

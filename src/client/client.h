@@ -11,7 +11,6 @@
 #include <thread>
 #include <memory>
 #include <atomic>
-#include <queue>
 #include <list>
 
 #include <sys/socket.h>
@@ -87,9 +86,7 @@ private:
 
     std::promise<void> promise_main_thread;
 
-    std::mutex receive_queue_mutex;
-    std::queue<receive_queue_data> receive_queue;
-    std::condition_variable receive_queue_cv;
+    Queue<receive_queue_data> receive_queue;
 
     std::mutex peer_info_list_mutex;
     std::list<peer_info> peer_info_list;
