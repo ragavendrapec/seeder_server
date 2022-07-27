@@ -66,6 +66,7 @@ public:
     status_e StartThreads(int argc, char **argv);
     status_e SocketThreadFunction();
     status_e ProcessReplyThreadFunction();
+    std::list<peer_info>::iterator FindPeerInfo(std::string ip_address, uint port);
 
 private:
     std::unique_ptr<std::thread> socket_thread;
@@ -92,6 +93,7 @@ private:
     std::list<peer_info> peer_info_list;
 
     int client_socket;
+    struct sockaddr_in my_address;
 };
 
 #endif // CLIENT_H_

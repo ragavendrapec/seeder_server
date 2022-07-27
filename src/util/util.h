@@ -16,6 +16,10 @@
 /*
  * Macro
  */
+#define RED_COLOR                   "\x1b[31m"
+#define GREEN_COLOR                 "\x1b[32m"
+#define RESET_COLOR                 "\x1b[0m"
+
 #define PRINT_ERROR                 (1<<0)
 #define PRINT_INFO                  (1<<1)
 #define PRINT_DEBUG                 (1<<2)
@@ -24,7 +28,7 @@
 #define PRINT_LOGS                  (PRINT_ERROR | PRINT_INFO)
 //#define PRINT_LOGS                  (PRINT_ERROR)
 
-#define ERROR_PRINT_LN(...)         do{if(PRINT_LOGS & PRINT_ERROR) std::cout, "[error]", __FUNCTION__, "[", __LINE__, "]: " __VA_ARGS__, std::endl;}while(0)
+#define ERROR_PRINT_LN(...)         do{if(PRINT_LOGS & PRINT_ERROR) std::cout, RED_COLOR, "[error]", RESET_COLOR, __FUNCTION__, "[", __LINE__, "]: " __VA_ARGS__, std::endl;}while(0)
 #define INFO_PRINT_LN(...)          do{if(PRINT_LOGS & PRINT_INFO) std::cout, __VA_ARGS__, std::endl;}while(0)
 #define DEBUG_PRINT_LN(...)         do{if(PRINT_LOGS & PRINT_DEBUG) std::cout, "[debug]", __FUNCTION__, "[", __LINE__, "]: " __VA_ARGS__, std::endl;}while(0)
 

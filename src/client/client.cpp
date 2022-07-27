@@ -9,6 +9,7 @@
 #include <condition_variable>
 #include <cstring>
 #include <future>
+#include <algorithm>
 #include <sstream>
 
 #include <unistd.h>
@@ -124,7 +125,7 @@ status_e Client::SetupSocket(int argc, char **argv)
 
     client_address.sin_family = AF_INET;
     client_address.sin_port = 0;
-    client_address.sin_addr.s_addr = inet_addr("127.0.0.1");
+    client_address.sin_addr.s_addr = INADDR_ANY;
 
     if ( bind(client_socket, reinterpret_cast<sockaddr *>(&client_address),
                     sizeof(client_address)) < 0 )
@@ -133,6 +134,12 @@ status_e Client::SetupSocket(int argc, char **argv)
         return status_error;
     }
 
+    socklen_t my_address_len = sizeof(my_address);
+    if (getsockname(client_socket, reinterpret_cast<sockaddr *>(&my_address), &my_address_len) < 0)
+    {
+        ERROR_PRINT_LN("get sockname");
+        return status_error;
+    }
     socket_thread.reset(new std::thread(&Client::SocketThreadFunction, this));
 
     DEBUG_PRINT_LN("completed");
@@ -197,6 +204,18 @@ status_e Client::SocketThreadFunction()
 
     DEBUG_PRINT_LN("completed");
     return status_ok;
+}
+
+std::list<peer_info>::iterator Client::FindPeerInfo(std::string ip_address, uint port)
+{
+    auto it = std::find_if(peer_info_list.begin(), peer_info_list.end(),
+            [&ip = ip_address, &p = port] (const peer_info &peer)
+            {
+                return(peer.peer_ip_address.compare(ip) == 0)
+                                     && (peer.peer_port == (uint16_t)p);
+            });
+
+    return it;
 }
 
 status_e Client::ProcessInputThreadFunction()
@@ -308,28 +327,23 @@ status_e Client::ProcessInputThreadFunction()
                 peer_address_len = sizeof(peer_address);
 //                INFO_PRINT_LN("IP address ", ip_address, " port ", port, " ", peer_address.sin_addr.s_addr);
 
-                if (sendto(client_socket, (void *)hello_msg.data(), hello_msg.size(),
-                        MSG_WAITALL, (struct sockaddr *) &peer_address, peer_address_len) < 0)
+                if (my_address.sin_addr.s_addr != peer_address.sin_addr.s_addr
+                        && my_address.sin_port != peer_address.sin_port)
                 {
-                    ERROR_PRINT_LN("Sendto returned error: ", strerror(errno), "(", errno, ")");
-                }
-
-                {
-                    std::lock_guard<std::mutex> lock(peer_info_list_mutex);
-                    bool match_found = false;
-                    for (auto peer_info : peer_info_list)
+                    if (sendto(client_socket, (void *)hello_msg.data(), hello_msg.size(),
+                            MSG_WAITALL, (struct sockaddr *) &peer_address, peer_address_len) < 0)
                     {
-                        if ((peer_info.peer_ip_address.compare(ip_address) == 0)
-                             && (peer_info.peer_port == (uint16_t)port))
-                        {
-                            match_found = true;
-                            break;
-                        }
+                        ERROR_PRINT_LN("Sendto returned error: ", strerror(errno), "(", errno, ")");
                     }
 
-                    if (!match_found)
                     {
-                        peer_info_list.emplace_back(ip_address, port);
+                        std::lock_guard<std::mutex> lock(peer_info_list_mutex);
+                        auto it = FindPeerInfo(ip_address, port);
+
+                        if (it == peer_info_list.end())
+                        {
+                            peer_info_list.emplace_back(ip_address, port);
+                        }
                     }
                 }
             }
@@ -442,7 +456,7 @@ status_e Client::ProcessReplyThreadFunction()
 
         if ((position1 = rqd.buffer.find(get_nodes_list_msg)) != std::string::npos)
         {
-            INFO_PRINT_LN("IP addresses:Ports*peer_info_list");
+            INFO_PRINT_LN(GREEN_COLOR, "IP addresses:Ports*peer_info_list", RESET_COLOR);
             position1 = get_nodes_list_msg.size() + 1;
             position2 = rqd.buffer.find("%", position1);
             while(position2 != std::string::npos)
@@ -454,7 +468,7 @@ status_e Client::ProcessReplyThreadFunction()
         }
         else if ((position1 = rqd.buffer.find(duration_alive_msg)) != std::string::npos)
         {
-            INFO_PRINT_LN("IP addresses:Ports");
+            INFO_PRINT_LN(GREEN_COLOR, "IP addresses:Ports", RESET_COLOR);
             position1 = duration_alive_msg.size() + 1;
             position2 = rqd.buffer.find("*", position1);
             while(position2 != std::string::npos)

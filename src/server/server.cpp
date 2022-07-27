@@ -9,6 +9,7 @@
 #include <condition_variable>
 #include <cstring>
 #include <string>
+#include <algorithm>
 #include <unistd.h>
 #include <arpa/inet.h>
 
@@ -234,27 +235,29 @@ status_e SeederServer::SocketThreadFunction()
     return status_ok;
 }
 
+std::list<client_info>::iterator SeederServer::FindClientInfo(struct sockaddr_in client_address)
+{
+    auto it = std::find_if (client_info_list.begin(), client_info_list.end(),
+                        [&ca = client_address] (const client_info &c) {
+                            return (c.client_address.sin_addr.s_addr == ca.sin_addr.s_addr
+                        && c.client_address.sin_port == ca.sin_port);
+            });
+
+    return it;
+}
+
 status_e SeederServer::CheckAndAddToTable(struct sockaddr_in client_address,
         size_t client_address_len)
 {
     int ret;
     char *error_msg;
-    bool match_found;
     DEBUG_PRINT_LN("");
 
-    match_found = false;
     std::lock_guard<std::mutex> lock(client_info_list_mutex);
-    for (auto client_info : client_info_list)
-    {
-        if (client_info.client_address.sin_addr.s_addr == client_address.sin_addr.s_addr
-                && client_info.client_address.sin_port == client_address.sin_port)
-        {
-            match_found = true;
-            break;
-        }
-    }
 
-    if (!match_found)
+    auto it = FindClientInfo(client_address);
+
+    if (it == client_info_list.end())
     {
         client_info_list.emplace_back(client_address, client_address_len);
     }
@@ -308,13 +311,12 @@ status_e SeederServer::PingReceived(struct sockaddr_in client_address,
 
     {
         std::lock_guard<std::mutex> lock(client_info_list_mutex);
-        for(auto &client_info : client_info_list)
+
+        auto it = FindClientInfo(client_address);
+
+        if (it != client_info_list.end())
         {
-            if (client_info.client_address.sin_addr.s_addr == client_address.sin_addr.s_addr
-                            && client_info.client_address.sin_port == client_address.sin_port)
-            {
-                client_info.last_ping_received_time = std::chrono::steady_clock::now();
-            }
+            (*it).last_ping_received_time = std::chrono::steady_clock::now();
         }
     }
 
@@ -372,15 +374,14 @@ status_e SeederServer::PeerInfoListReceived(struct sockaddr_in client_address,
     {
         DEBUG_PRINT_LN("", peer_info_list);
         std::lock_guard<std::mutex> lock(client_info_list_mutex);
-        for(auto &client_info : client_info_list)
+
+        auto it = FindClientInfo(client_address);
+
+        if (it != client_info_list.end())
         {
-            if (client_info.client_address.sin_addr.s_addr == client_address.sin_addr.s_addr
-                            && client_info.client_address.sin_port == client_address.sin_port)
+            if ((*it).peer_info_list.compare(peer_info_list) != 0)
             {
-                if (client_info.peer_info_list.compare(peer_info_list) != 0)
-                {
-                    client_info.peer_info_list = peer_info_list;
-                }
+                (*it).peer_info_list = peer_info_list;
             }
         }
     }

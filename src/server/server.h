@@ -85,6 +85,7 @@ public:
     status_e ProcessReplyThreadFunction();
     status_e ClientStatusThreadFunction();
     status_e StartThreads();
+    std::list<client_info>::iterator FindClientInfo(struct sockaddr_in client_address);
 
 private:
     std::unique_ptr<std::thread> signal_thread;
