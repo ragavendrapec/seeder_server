@@ -32,21 +32,6 @@
 /*
  * Type
  */
-struct receive_queue_data
-{
-    receive_queue_data() {}
-
-    receive_queue_data(std::string arg_buffer, size_t arg_buffer_size, struct sockaddr_in arg_client_address,
-            size_t arg_client_addr_len): buffer(arg_buffer), buffer_size(arg_buffer_size),
-                    client_address(arg_client_address), client_addr_len(arg_client_addr_len)
-    {}
-
-    std::string buffer;
-    size_t buffer_size;
-    struct sockaddr_in client_address;
-    size_t client_addr_len;
-};
-
 struct client_info
 {
     client_info() {}

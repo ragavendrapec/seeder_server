@@ -156,7 +156,6 @@ status_e Client::SocketThreadFunction()
     size_t num_bytes_received;
     struct sockaddr_in addr;
     socklen_t addr_len;
-    char ip_address[INET_ADDRSTRLEN];
 
     DEBUG_PRINT_LN("");
     nfds = 0;
@@ -184,18 +183,9 @@ status_e Client::SocketThreadFunction()
                                                &addr_len)) > 0)
                 {
                     buffer[num_bytes_received] = '\0';
-                    if (buffer == hello_msg)
-                    {
-                        std::memset(ip_address, 0, sizeof(ip_address));
-                        if (inet_ntop(AF_INET, &addr.sin_addr, ip_address, INET_ADDRSTRLEN) == 0x0)
-                        {
-                            return status_error;
-                        }
-                        INFO_PRINT_LN("", buffer, " from ", ip_address, ":", ntohs(addr.sin_port));
-                    }
 
                     // Push the buffer elements to queue
-                    receive_queue_data rqd(buffer, num_bytes_received);
+                    receive_queue_data rqd(buffer, num_bytes_received, addr, addr_len);
                     receive_queue.Push(rqd);
                 }
             }
@@ -297,7 +287,7 @@ status_e Client::ProcessInputThreadFunction()
             }
             std::this_thread::sleep_for (std::chrono::seconds(1));
         }
-        else if (input == "4")
+        else if (input == "4" && hello_sent.load())
         {
             INFO_PRINT_LN("Specify peer's IP address and port (eg. 127.0.0.1:47851):");
             std::cin >> input;
@@ -365,8 +355,9 @@ status_e Client::ProcessInputThreadFunction()
             }
 
             {
+                struct sockaddr_in dummy_addr;
                 // Push an element with shutdown msg to inform ProcessReplyFunction to exit from loop
-                receive_queue_data rqd(shutting_down_msg, shutting_down_msg.size());
+                receive_queue_data rqd(shutting_down_msg, shutting_down_msg.size(), dummy_addr, sizeof(dummy_addr));
                 receive_queue.Push(rqd);
             }
         }
@@ -384,6 +375,7 @@ status_e Client::PingServerThreadFunction()
 {
     int first_time;
     std::string peer_info_list_msg;
+
     DEBUG_PRINT_LN("");
 
     first_time = 0;
@@ -445,6 +437,7 @@ status_e Client::ProcessReplyThreadFunction()
     receive_queue_data rqd;
     size_t position1;
     size_t position2;
+    char ip_address[INET_ADDRSTRLEN];
 
     DEBUG_PRINT_LN("");
 
@@ -477,6 +470,15 @@ status_e Client::ProcessReplyThreadFunction()
                 position1 = position2 + 1;
                 position2 = rqd.buffer.find("*", position1);
             }
+        }
+        else if (rqd.buffer == hello_msg)
+        {
+            std::memset(ip_address, 0, sizeof(ip_address));
+            if (inet_ntop(AF_INET, &rqd.address.sin_addr, ip_address, INET_ADDRSTRLEN) == 0x0)
+            {
+                return status_error;
+            }
+            INFO_PRINT_LN("", rqd.buffer, " from ", ip_address, ":", ntohs(rqd.address.sin_port));
         }
         else if (rqd.buffer == shutting_down_msg)
         {

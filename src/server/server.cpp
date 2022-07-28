@@ -140,6 +140,7 @@ void SeederServer::ReceiveSignalThreadFunction()
     promise_main_thread.set_value();
 
     DEBUG_PRINT_LN("completed");
+
     return;
 }
 
@@ -402,31 +403,31 @@ status_e SeederServer::ProcessReplyThreadFunction()
         // the front element from the queue
         receive_queue.Pop(rqd);
 
-        DEBUG_PRINT_LN("", rqd.buffer, " ", rqd.client_address.sin_port);
+        DEBUG_PRINT_LN("", rqd.buffer, " ", rqd.address.sin_port);
         if (rqd.buffer == hello_msg)
         {
             // Client introduction, add to list if not present previously
-            CheckAndAddToTable(rqd.client_address, rqd.client_addr_len);
+            CheckAndAddToTable(rqd.address, rqd.address_len);
         }
         else if (rqd.buffer == get_nodes_list_msg)
         {
             // Client asking for nodes list, prepare and send.
-            PrepareNodesList(rqd.client_address, rqd.client_addr_len);
+            PrepareNodesList(rqd.address, rqd.address_len);
         }
         else if(rqd.buffer == ping_msg)
         {
             // Update last ping received time in client info list
-            PingReceived(rqd.client_address, rqd.client_addr_len);
+            PingReceived(rqd.address, rqd.address_len);
         }
         else if (rqd.buffer.find(duration_alive_msg) != std::string::npos)
         {
             int time_alive = std::stoi(rqd.buffer.substr(duration_alive_msg.size() + 1), nullptr, 10);
-            PrepareDurationAliveList(rqd.client_address, rqd.client_addr_len, time_alive);
+            PrepareDurationAliveList(rqd.address, rqd.address_len, time_alive);
         }
         else if (rqd.buffer.find(peer_info_msg) != std::string::npos)
         {
             // Update peer info (this client is ) in client info list
-            PeerInfoListReceived(rqd.client_address, rqd.client_addr_len, rqd.buffer.substr(peer_info_msg.size() + 1));
+            PeerInfoListReceived(rqd.address, rqd.address_len, rqd.buffer.substr(peer_info_msg.size() + 1));
         }
         else if (rqd.buffer == shutting_down_msg)
         {

@@ -65,6 +65,22 @@ enum status_e {
     status_error = -1
 };
 
+struct receive_queue_data
+{
+    receive_queue_data() {}
+
+    receive_queue_data(std::string arg_buffer, size_t arg_buffer_size, struct sockaddr_in arg_address,
+            size_t arg_address_len): buffer(arg_buffer), buffer_size(arg_buffer_size),
+                    address(arg_address), address_len(arg_address_len)
+    {}
+
+    std::string buffer;
+    size_t buffer_size;
+    struct sockaddr_in address;
+    size_t address_len;
+};
+
+
 template<typename T>
 class Queue
 {

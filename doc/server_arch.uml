@@ -1,0 +1,49 @@
+@startuml
+start
+:BlockSignal;
+fork
+-> Receive signal thread;
+while(timed wait) is (no signal received)
+endwhile (signal received)
+:notify_other_threads;
+forkagain
+:setup server socket;
+-> socket thread;
+while(signal received) is (no)
+if(receive msg on socket) then (no)
+else (yes)
+:Push msg to queue;
+endif
+endwhile (yes)
+forkagain
+-> Process reply thread;
+while(shutdown requested) is (no)
+:Pop from queue;
+!pragma useVerticalIf on
+if(hello msg) then (yes)
+:Add to node list;
+elseif (get node list) then (yes)
+:Prepare node list \nand send to client;
+elseif (ping msg) then (yes)
+:Update ping\ntime for client;
+elseif (duration alive msg) then (yes)
+:Prepare duration alive\nlist and send to client;
+elseif (peer info msg) then (yes)
+:Update peer info \nlist for client;
+else (shutdown msg)
+endif
+endwhile (yes)
+forkagain
+-> Client Status thread;
+while(signal received) is (no)
+:wait for 2 seconds;
+repeat
+if (last ping time > 10sec) then (yes)
+:Delete node from list;
+endif
+repeat while(checked all nodes) is (no)
+-> yes;
+endwhile (yes)
+endfork
+stop
+@enduml

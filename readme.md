@@ -63,14 +63,14 @@ Server doesn't print any logs and all the operations are requested from client. 
 	5. Quit/Shutdown client
 
 
-- Send a hello to server by specifying `1` and the client would be added to the peer list
+- Send a hello to server by specifying `1` and the client would be added to the client list maintained by server.
 - Performing any operation `2 or 3` before specifying sending hello to server would print this error
 	
 	```
 	[error]ProcessInputThreadFunction[366]: Input error or send hello before inputting other choice. Choose again between [1-5].
 	```
 	
-- Now specify `2` to get a list of peers including the current client. Here *peer_info_list* points to the IP addresses of the peers that the current client is messaging. Since, this is the only client and hasn't messaged any other client it is empty below.
+- Now specify `2` to get a list of peers including the current client. Here *peer_info_list* points to the IP addresses of the peers that the current client is messaging/interacting with. Since, this is the only client and hasn't messaged any other client it is empty below.
 
 	```c
 	$ ./client 
@@ -133,7 +133,7 @@ Server doesn't print any logs and all the operations are requested from client. 
 
 	```
 	
-- Specify `4` to message peer nodes. For this open another command prompt and send a hello to server first, now specifying `2` would show two clients listed as below `127.0.0.1:48452` and `127.0.0.1:51426`. Now specify `4` in the first command prompt and specify the second client's IP address and port number which is `127.0.0.1:51426`. Now specifying `2` again would list `127.0.0.1:51426` as a peer for `127.0.0.1:48452`. For now the client 1's IP address is not added to client 2's list (this can be taken as an improvement). 
+- Specify `4` to message peer nodes. For this open another command prompt run `client` and send a hello to server first. Now specifying `2` would show two clients listed as below `127.0.0.1:48452` and `127.0.0.1:51426`. Now specify `4` in the first command prompt and specify the second client's IP address and port number which is `127.0.0.1:51426`. Now specifying `2` again would list `127.0.0.1:51426` as a peer for `127.0.0.1:48452`. For now the client 1's IP address is not added to client 2's list (this can be taken as an improvement). 
 
 	```c
 	$ ./client 
@@ -181,9 +181,9 @@ Server doesn't print any logs and all the operations are requested from client. 
 	5
 	Client shutting down
 
-- Further the client periodically (every 10 seconds) sends a ping and peer list to the server, if the server doesn't receive a ping for more than 10 seconds it assumes the client has died and proceeds to remove the client from the node list it maintains. 
+- Further the client periodically (every 10 seconds) sends a ping and peer list (i.e. list of peers the current client is interacting with) to the server, if the server doesn't receive a ping for more than 10 seconds it assumes the client has died and proceeds to remove the client from the client list it maintains. 
 - This feature can be tested by opening multiple clients from various command prompts and registering with the server by sending a `1` from all the clients and closing one of them and waiting for 10 seconds or so and issuing a `2` from the active client.
-- Further, debug logs can be enabled by defining PRINT_LOGS in `src/util/util.h`
+- Further, debug logs can be enabled by defining PRINT_LOGS in `src/util/util.h` as below
 
 	```
 	#define PRINT_LOGS                  (PRINT_ERROR | PRINT_INFO | PRINT_DEBUG)

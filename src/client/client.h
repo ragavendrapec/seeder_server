@@ -29,18 +29,6 @@
 /*
  * Type
  */
-struct receive_queue_data
-{
-    receive_queue_data() {}
-
-    receive_queue_data(std::string arg_buffer, size_t arg_buffer_size):
-        buffer(arg_buffer), buffer_size(arg_buffer_size)
-    {}
-
-    std::string buffer;
-    size_t buffer_size;
-};
-
 struct peer_info
 {
     peer_info() {}

@@ -1,0 +1,52 @@
+@startuml
+start
+fork
+:setup client socket;
+-> socket thread;
+while(shutdown requested) is (no)
+if(receive msg on socket) then (no)
+else (yes)
+:Push msg to queue;
+endif
+endwhile (yes)
+forkagain
+-> Process Input thread;
+while(shutdown requested) is (no)
+:wait for input;
+!pragma useVerticalIf on
+if(1) then (yes)
+:Send hello to server;
+elseif (2) then (yes)
+:Send msg to get node \nlist from server;
+elseif (3) then (yes)
+:Send msg to get active \nlist from server;
+elseif (4) then (yes)
+:Msg peer node;
+elseif (5) then (yes)
+:shutdown msg;
+endif
+endwhile (yes)
+forkagain
+-> Ping server thread;
+while(shutdown requested) is (no)
+:wait for 10 seconds;
+:Send ping msg to server;
+:Send peer info list msg to server;
+-> yes;
+endwhile (yes)
+forkagain
+-> Process reply thread;
+while(shutdown requested) is (no)
+:Pop from queue;
+!pragma useVerticalIf on
+if(hello msg) then (yes)
+:Received hello from peer;
+elseif (get node list) then (yes)
+:Received nodes list \nfrom server;
+elseif (get active list) then (yes)
+:Received duration alive\nlist from server;
+endif
+endwhile (yes)
+endfork
+stop
+@enduml
