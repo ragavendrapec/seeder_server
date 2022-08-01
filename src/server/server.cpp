@@ -50,11 +50,6 @@ SeederServer::SeederServer()
 
 SeederServer::~SeederServer()
 {
-    if (seeder_server_socket > 0)
-    {
-        close(seeder_server_socket);
-    }
-
     if (client_status_thread)
     {
         client_status_thread->join();
@@ -68,6 +63,11 @@ SeederServer::~SeederServer()
     if (socket_thread)
     {
         socket_thread->join();
+    }
+
+    if (seeder_server_socket > 0)
+    {
+        close(seeder_server_socket);
     }
 
     if (signal_thread)
